@@ -102,21 +102,6 @@
         </div>
     </div>
     
-    <!-- Alerts Panel -->
-    <div class="row mt-4">
-        <div class="col-12">
-            <div class="card shadow-sm">
-                <div class="card-header bg-warning">
-                    <h5 class="mb-0">⚠️ Active Alerts</h5>
-                </div>
-                <div class="card-body">
-                    <div id="alerts-container">
-                        <p class="text-muted">No active alerts</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
 </div>
 
 <style>
@@ -218,7 +203,6 @@ function captureImage() {
     .then(r => r.json())
     .then(data => {
         displayVerificationResult(data);
-        loadAlerts();
     })
     .catch(err => {
         console.error(err);
@@ -240,7 +224,7 @@ function displayVerificationResult(result) {
     if (result.result === 'APPROVED') {
         resultHeader.style.backgroundColor = '#28a745';
         resultAlert.className = 'alert alert-success';
-        resultAlert.innerHTML = '<i class="bi bi-check-circle me-2"></i><strong>APPROVED</strong> - Pick verified successfully!';
+        resultAlert.innerHTML = `<i class="bi bi-check-circle me-2"></i><strong>APPROVED</strong> - Pick verified successfully! Order is ${result.order_status || 'ready for dispatch'}.`;
         document.getElementById('errors-list').style.display = 'none';
         playSuccessSound();
     } else {
@@ -272,24 +256,6 @@ function resetVerification() {
     document.getElementById('scanned-sku').value = '';
     document.getElementById('scanned-batch').value = '';
     document.getElementById('scanned-expiry').value = '';
-}
-
-function loadAlerts() {
-    fetch('/api/alerts')
-        .then(r => r.json())
-        .then(data => {
-            const container = document.getElementById('alerts-container');
-            if (!data.alerts || data.alerts.length === 0) {
-                container.innerHTML = '<p class="text-muted">No active alerts</p>';
-            } else {
-                container.innerHTML = data.alerts.map(alert => `
-                    <div class="alert alert-warning alert-dismissible fade show mb-2" role="alert">
-                        <strong>${alert.alert_code}</strong>: ${alert.alert_message}
-                        <small class="d-block">Order #${alert.order_id}</small>
-                    </div>
-                `).join('');
-            }
-        });
 }
 
 function playSuccessSound() {
@@ -328,7 +294,5 @@ function playErrorSound() {
     }
 }
 
-// Refresh alerts periodically
-setInterval(loadAlerts, 5000);
 </script>
 {% endblock %}

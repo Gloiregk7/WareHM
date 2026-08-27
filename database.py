@@ -11,10 +11,10 @@ def init_db():
     
     # Insert sample staff members
     sample_staff = [
-        ('John Kamau', 'EMP-001', 'Warehouse Operations', 'warehouse_staff'),
-        ('Grace Wanjiru', 'EMP-002', 'Warehouse Operations', 'warehouse_staff'),
-        ('Peter Mwangi', 'EMP-003', 'Quality Assurance', 'supervisor'),
-        ('Mary Kipchoge', 'EMP-004', 'Warehouse Operations', 'warehouse_staff'),
+        ('Allan Kamau', '0001', 'Warehouse Operations', 'warehouse_staff'),
+        ('Gloire Mugisha', '0002', 'Warehouse Operations', 'warehouse_staff'),
+        ('Stacy Wangeci', '0003', 'Warehouse Operations', 'warehouse_staff'),
+        ('MaryCynthia Gitau', '0004', 'Warehouse Operations', 'warehouse_staff'),
     ]
     
     cursor.executemany('''
@@ -29,25 +29,16 @@ def init_db():
         ('MED-305', 'Ibuprofen 400mg', 'BATCH-2027C', 100, 'Shelf C2', '2027-08-20'),
         ('MED-402', 'Aspirin 100mg', 'BATCH-2026D', 60, 'Shelf D1', '2026-10-15'),
         ('MED-503', 'Vitamin C 500mg', 'BATCH-2027E', 120, 'Shelf E5', '2027-06-30'),
+        ('MED-601', 'Surgical Gloves', 'BATCH-2027F', 200, 'Shelf F1', '2027-09-30'),
+        ('MED-602', 'Sterile Syringes 5ml', 'BATCH-2027G', 150, 'Shelf F2', '2027-12-31'),
+        ('MED-603', 'Gauze Swabs 10cm', 'BATCH-2028H', 300, 'Shelf G1', '2028-03-31'),
+        ('MED-604', 'Hand Sanitizer 500ml', 'BATCH-2027I', 100, 'Shelf G2', '2027-07-31'),
     ]
     
     cursor.executemany('''
         INSERT INTO inventory (sku, item_name, batch_code, quantity, location, expiry_date)
         VALUES (?, ?, ?, ?, ?, ?)
     ''', sample_inventory)
-    
-    # Insert sample test orders
-    sample_orders = [
-        ('MED-101', 'Paracetamol 500mg', 'BATCH-2026A', 1, '2026-12-31', 'Shelf A1', 'Nairobi West Hospital', 'PENDING', 1),
-        ('MED-204', 'Amoxicillin 250mg', 'BATCH-2025B', 2, '2025-05-15', 'Shelf B3', 'Kenyatta National Hospital', 'PENDING', 2),
-        ('MED-305', 'Ibuprofen 400mg', 'BATCH-2027C', 3, '2027-08-20', 'Shelf C2', 'Mbagathi Hospital', 'PENDING', 1),
-        ('MED-402', 'Aspirin 100mg', 'BATCH-2026D', 5, '2026-10-15', 'Shelf D1', 'Karen Hospital', 'PENDING', 3),
-    ]
-    
-    cursor.executemany('''
-        INSERT INTO orders (sku, item_name, target_batch, required_quantity, expiry_date, location, destination, status, assigned_to)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', sample_orders)
     
     # Initialize staff performance records
     for i in range(1, 5):
@@ -60,8 +51,8 @@ def init_db():
     conn.close()
     print("✓ Database 'kemsa_wms.db' initialized successfully!")
     print("✓ Sample staff: 4 members")
-    print("✓ Sample inventory: 5 items")
-    print("✓ Sample orders: 4 pending")
+    print("✓ Starter inventory: 10 items")
+    print("✓ Sample orders: none (ready for user-created orders)")
     print("\nDatabase initialization complete!")
 
 if __name__ == '__main__':

@@ -41,6 +41,7 @@ CREATE TABLE orders (
     expiry_date TEXT NOT NULL,
     location TEXT NOT NULL,
     destination TEXT NOT NULL,
+    dispatcher_name TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'PENDING',
     assigned_to INTEGER,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),

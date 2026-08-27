@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+    <h2 class="mb-0"><i class="bi bi-boxes me-2"></i>Inventory Management</h2>
+    <button type="button" class="btn btn-outline-secondary" onclick="loadInventory()">
+        <i class="bi bi-arrow-clockwise me-1"></i>Refresh Inventory
+    </button>
+</div>
+
+<div id="inventory-message"></div>
+
+<div class="row g-4">
+    <div class="col-lg-4">
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="bi bi-plus-circle me-2"></i>Add Inventory Item</h5>
+            </div>
+            <div class="card-body">
+                <form id="inventory-form">
+                    <div class="mb-3">
+                        <label for="sku" class="form-label">SKU</label>
+                        <input id="sku" name="sku" class="form-control" required placeholder="e.g. MED-601">
+                    </div>
+                    <div class="mb-3">
+                        <label for="item_name" class="form-label">Item Name</label>
+                        <input id="item_name" name="item_name" class="form-control" required placeholder="e.g. Surgical Gloves">
+                    </div>
+                    <div class="mb-3">
+                        <label for="batch_code" class="form-label">Batch Code</label>
+                        <input id="batch_code" name="batch_code" class="form-control" required placeholder="e.g. BATCH-2026D">
+                    </div>
+                    <div class="mb-3">
+                        <label for="quantity" class="form-label">Quantity</label>
+                        <input id="quantity" name="quantity" type="number" min="0" step="1" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="location" class="form-label">Storage Location</label>
+                        <input id="location" name="location" class="form-control" required placeholder="e.g. Shelf D2">
+                    </div>
+                    <div class="mb-3">
+                        <label for="expiry_date" class="form-label">Expiry Date</label>
+                        <input id="expiry_date" name="expiry_date" type="date" class="form-control" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-database-add me-1"></i>Add Item
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-8">
+        <div class="table-responsive">
+            <table class="table table-striped table-hover shadow-sm align-middle">
+                <thead class="table-dark">
+                    <tr>
+                        <th>SKU</th>
+                        <th>Item</th>
+                        <th>Batch</th>
+                        <th>Quantity</th>
+                        <th>Location</th>
+                        <th>Expiry</th>
+                    </tr>
+                </thead>
+                <tbody id="inventory-table-body">
+                    <tr><td colspan="6" class="text-center text-muted">Loading inventory...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/inventory.js') }}"></script>
+{% endblock %}

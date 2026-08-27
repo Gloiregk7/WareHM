@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6 col-lg-5">
+        <div class="card shadow-sm mt-5">
+            <div class="card-header bg-dark text-white text-center py-3">
+                <h3 class="mb-1"><i class="bi bi-shield-lock me-2"></i>Staff Sign In</h3>
+                <p class="mb-0 small">Identify yourself before accessing KEMSA WMS</p>
+            </div>
+            <div class="card-body p-4">
+                {% if error %}
+                <div class="alert alert-danger" role="alert">{{ error }}</div>
+                {% endif %}
+                <form method="post" action="{{ url_for('login') }}">
+                    <input type="hidden" name="next" value="{{ next or '' }}">
+                    <div class="mb-3">
+                        <label for="operator_name" class="form-label">Staff Name</label>
+                        <input id="operator_name" name="operator_name" class="form-control" required autocomplete="name" placeholder="Enter your registered name">
+                    </div>
+                    <div class="mb-4">
+                        <label for="staff_id" class="form-label">Staff ID</label>
+                        <input id="staff_id" name="staff_id" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" class="form-control" required placeholder="e.g. 0001">
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-box-arrow-in-right me-1"></i>Sign In
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

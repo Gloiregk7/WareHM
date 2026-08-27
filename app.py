@@ -1,12 +1,83 @@
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, jsonify, request, render_template, session, redirect, url_for
 import os
 import sqlite3
 from datetime import datetime
 import time
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = os.environ.get('KEMSA_SECRET_KEY', 'development-only-change-me')
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_NAME = os.path.join(BASE_DIR, 'kemsa_wms.db')
+
+def ensure_order_columns():
+    conn = sqlite3.connect(DB_NAME)
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(orders)")}
+    if 'dispatcher_name' not in columns:
+        conn.execute("ALTER TABLE orders ADD COLUMN dispatcher_name TEXT NOT NULL DEFAULT ''")
+        conn.commit()
+    conn.close()
+
+ensure_order_columns()
+
+PUBLIC_ENDPOINTS = {'login', 'static'}
+
+@app.before_request
+def require_staff_login():
+    if request.endpoint in PUBLIC_ENDPOINTS or request.endpoint is None:
+        return None
+    if session.get('staff_id'):
+        return None
+    if request.path.startswith('/api/'):
+        return jsonify({
+            "status": "UNAUTHORIZED",
+            "message": "Please sign in with your staff name and staff ID"
+        }), 401
+    return redirect(url_for('login', next=request.full_path))
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        data = request.get_json(silent=True) if request.is_json else request.form
+        operator_name = str(data.get('operator_name', '')).strip()
+        staff_id = str(data.get('staff_id', '')).strip()
+        next_url = data.get('next') or request.args.get('next') or url_for('orders_page')
+
+        try:
+            conn = get_db_connection()
+            staff = conn.execute('''
+                SELECT staff_id, operator_name, employee_id, department, role
+                FROM staff
+                                WHERE employee_id = ? AND status = 'ACTIVE'
+                  AND lower(trim(operator_name)) = lower(trim(?))
+                        ''', (staff_id.zfill(4), operator_name)).fetchone()
+            conn.close()
+        except Exception as e:
+            if request.is_json:
+                return jsonify({"status": "ERROR", "message": str(e)}), 500
+            return render_template('login.html', error='Unable to verify staff details.'), 500
+
+        if not staff:
+            message = 'Staff name or Staff ID is incorrect. Please use your registered details.'
+            if request.is_json:
+                return jsonify({"status": "ERROR", "message": message}), 401
+            return render_template('login.html', error=message, next=next_url), 401
+
+        session.clear()
+        session['staff_id'] = staff['staff_id']
+        session['operator_name'] = staff['operator_name']
+        session['employee_id'] = staff['employee_id']
+        if request.is_json:
+            return jsonify({"status": "SUCCESS", "staff": dict(staff)})
+        return redirect(next_url if next_url.startswith('/') else url_for('orders_page'))
+
+    if session.get('staff_id'):
+        return redirect(url_for('orders_page'))
+    return render_template('login.html', next=request.args.get('next', ''))
+
+@app.post('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
 
 def get_db_connection():
     conn = sqlite3.connect(DB_NAME)
@@ -35,6 +106,10 @@ def staff_page():
 @app.route('/reports')
 def reports_page():
     return render_template('reports.html')
+
+@app.route('/inventory')
+def inventory_page():
+    return render_template('inventory.html')
 
 # ==================== HEALTH CHECK ====================
 
@@ -93,16 +168,186 @@ def get_staff_detail(staff_id):
 
 # ==================== ORDERS API ====================
 
+@app.route('/api/inventory', methods=['GET'])
+def get_inventory():
+    try:
+        conn = get_db_connection()
+        items = conn.execute(
+            "SELECT * FROM inventory ORDER BY item_name, batch_code"
+        ).fetchall()
+        conn.close()
+        return jsonify([dict(item) for item in items])
+    except Exception as e:
+        return jsonify({"status": "ERROR", "message": str(e)}), 500
+
+@app.route('/api/inventory', methods=['POST'])
+def create_inventory_item():
+    data = request.get_json(silent=True) or {}
+    required_fields = ('sku', 'item_name', 'batch_code', 'quantity', 'location', 'expiry_date')
+    missing_fields = [field for field in required_fields if data.get(field) in (None, '')]
+    if missing_fields:
+        return jsonify({
+            "status": "ERROR",
+            "message": "Missing required fields: " + ", ".join(missing_fields)
+        }), 400
+
+    try:
+        quantity = int(data['quantity'])
+        if quantity < 0:
+            raise ValueError
+        datetime.strptime(data['expiry_date'], '%Y-%m-%d')
+    except (TypeError, ValueError):
+        return jsonify({
+            "status": "ERROR",
+            "message": "Quantity must be a non-negative integer and expiry_date must use YYYY-MM-DD"
+        }), 400
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.execute('''
+            INSERT INTO inventory (sku, item_name, batch_code, quantity, location, expiry_date)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            str(data['sku']).strip(),
+            str(data['item_name']).strip(),
+            str(data['batch_code']).strip(),
+            quantity,
+            str(data['location']).strip(),
+            data['expiry_date']
+        ))
+        conn.commit()
+        item = conn.execute(
+            "SELECT * FROM inventory WHERE inventory_id = ?", (cursor.lastrowid,)
+        ).fetchone()
+        conn.close()
+        return jsonify({"status": "SUCCESS", "item": dict(item)}), 201
+    except sqlite3.IntegrityError:
+        return jsonify({"status": "ERROR", "message": "SKU already exists"}), 409
+    except Exception as e:
+        return jsonify({"status": "ERROR", "message": str(e)}), 500
+
 @app.route('/api/orders', methods=['GET'])
 def get_orders():
     try:
-        status = request.args.get('status', 'PENDING')
+        status = request.args.get('status', 'ALL')
         conn = get_db_connection()
-        orders = conn.execute(
-            "SELECT * FROM orders WHERE status = ? ORDER BY created_at DESC", (status,)
-        ).fetchall()
+        order_columns = '''order_id, sku, item_name, target_batch, required_quantity,
+                           expiry_date, location, destination, status, assigned_to, created_at'''
+        if status == 'ALL':
+            orders = conn.execute(f"SELECT {order_columns} FROM orders ORDER BY order_id ASC").fetchall()
+        else:
+            orders = conn.execute(
+                f"SELECT {order_columns} FROM orders WHERE status = ? ORDER BY order_id ASC", (status,)
+            ).fetchall()
         conn.close()
-        return jsonify([dict(order) for order in orders])
+        return jsonify([
+            {**dict(order), "status_label": order['status'].replace('_', ' ').title()}
+            for order in orders
+        ])
+    except Exception as e:
+        return jsonify({"status": "ERROR", "message": str(e)}), 500
+
+@app.route('/api/orders', methods=['POST'])
+def create_order():
+    data = request.get_json(silent=True) or {}
+    required_fields = ('sku', 'item_name', 'target_batch', 'required_quantity', 'expiry_date', 'location', 'destination', 'dispatcher_name')
+    missing_fields = [field for field in required_fields if data.get(field) in (None, '')]
+    if missing_fields:
+        return jsonify({
+            "status": "ERROR",
+            "message": "Missing required fields: " + ", ".join(missing_fields)
+        }), 400
+
+    try:
+        quantity = int(data['required_quantity'])
+        if quantity <= 0:
+            raise ValueError
+        datetime.strptime(data['expiry_date'], '%Y-%m-%d')
+    except (TypeError, ValueError):
+        return jsonify({
+            "status": "ERROR",
+            "message": "required_quantity must be positive and expiry_date must use YYYY-MM-DD"
+        }), 400
+
+    try:
+        conn = get_db_connection()
+        inventory = conn.execute(
+            "SELECT item_name, quantity FROM inventory WHERE sku = ? AND batch_code = ? AND expiry_date = ?",
+            (data['sku'].strip(), data['target_batch'].strip(), data['expiry_date'])
+        ).fetchone()
+        if not inventory:
+            possible_sku = conn.execute(
+                "SELECT sku FROM inventory WHERE lower(sku) = lower(?) LIMIT 1",
+                (data['sku'].strip(),)
+            ).fetchone()
+            conn.close()
+            if possible_sku:
+                return jsonify({
+                    "status": "ERROR",
+                    "message": "The batch code or expiry date does not match the selected SKU"
+                }), 404
+            return jsonify({
+                "status": "ERROR",
+                "message": "SKU not recognized. Please verify the SKU spelling against Inventory"
+            }), 404
+        if inventory['item_name'].strip().casefold() != str(data['item_name']).strip().casefold():
+            conn.close()
+            return jsonify({
+                "status": "ERROR",
+                "message": "Item name does not match the selected inventory record"
+            }), 422
+        if inventory['quantity'] < quantity:
+            conn.close()
+            return jsonify({"status": "ERROR", "message": "Insufficient inventory quantity"}), 409
+
+        cursor = conn.execute('''
+            INSERT INTO orders (sku, item_name, target_batch, required_quantity, expiry_date, location, destination, dispatcher_name, assigned_to)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            data['sku'].strip(), inventory['item_name'], data['target_batch'].strip(), quantity,
+            data['expiry_date'], data['location'].strip(), data['destination'].strip(),
+            data['dispatcher_name'].strip(), session['staff_id']
+        ))
+        conn.commit()
+        order = conn.execute("SELECT * FROM orders WHERE order_id = ?", (cursor.lastrowid,)).fetchone()
+        conn.close()
+        return jsonify({"status": "SUCCESS", "order": dict(order)}), 201
+    except sqlite3.IntegrityError as e:
+        return jsonify({"status": "ERROR", "message": str(e)}), 400
+    except Exception as e:
+        return jsonify({"status": "ERROR", "message": str(e)}), 500
+
+@app.route('/api/orders/<int:order_id>', methods=['DELETE'])
+def delete_order(order_id):
+    try:
+        conn = get_db_connection()
+        order = conn.execute(
+            "SELECT status FROM orders WHERE order_id = ?", (order_id,)
+        ).fetchone()
+        if not order:
+            conn.close()
+            return jsonify({"status": "ERROR", "message": "Order record was not found"}), 404
+        if order['status'] != 'PENDING':
+            conn.close()
+            return jsonify({
+                "status": "ERROR",
+                "message": "Verified orders cannot be deleted"
+            }), 409
+        verification = conn.execute(
+            "SELECT 1 FROM verification_log WHERE order_id = ? LIMIT 1", (order_id,)
+        ).fetchone()
+        if verification:
+            conn.close()
+            return jsonify({
+                "status": "ERROR",
+                "message": "This order has a verification record and cannot be deleted"
+            }), 409
+        conn.execute("DELETE FROM orders WHERE order_id = ?", (order_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({"status": "SUCCESS", "message": "Order deleted successfully"})
+    except sqlite3.IntegrityError:
+        return jsonify({"status": "ERROR", "message": "Order cannot be deleted because audit records reference it"}), 409
     except Exception as e:
         return jsonify({"status": "ERROR", "message": str(e)}), 500
 
@@ -110,7 +355,11 @@ def get_orders():
 def get_order_detail(order_id):
     try:
         conn = get_db_connection()
-        order = conn.execute("SELECT * FROM orders WHERE order_id = ?", (order_id,)).fetchone()
+        order = conn.execute('''
+            SELECT order_id, sku, item_name, target_batch, required_quantity,
+                   expiry_date, location, destination, status, assigned_to, created_at
+            FROM orders WHERE order_id = ?
+        ''', (order_id,)).fetchone()
         if not order:
             return jsonify({"status": "ERROR", "message": "Order not found"}), 404
         alerts = conn.execute("SELECT * FROM pick_alerts WHERE order_id = ?", (order_id,)).fetchall()
@@ -166,10 +415,32 @@ def verify_pick():
             scanned_expiry,
             result,
             ','.join(error["code"] for error in errors) if errors else None,
-            data.get('operator_id', data.get('staff_id', 1)),
+            session['staff_id'],
             data.get('station_id', 1),
             0.5
         ))
+
+        dispatch_status = None
+        remaining_quantity = None
+        if result == "APPROVED" and order['status'] == 'PENDING':
+            inventory = conn.execute(
+                "SELECT inventory_id, quantity FROM inventory WHERE sku = ? AND batch_code = ?",
+                (order['sku'], order['target_batch'])
+            ).fetchone()
+            if not inventory or inventory['quantity'] < order['required_quantity']:
+                conn.rollback()
+                return jsonify({"status": "ERROR", "message": "Insufficient matching inventory for this order"}), 409
+
+            remaining_quantity = inventory['quantity'] - order['required_quantity']
+            conn.execute(
+                "UPDATE inventory SET quantity = ?, updated_at = datetime('now') WHERE inventory_id = ?",
+                (remaining_quantity, inventory['inventory_id'])
+            )
+            conn.execute(
+                "UPDATE orders SET status = 'READY_FOR_DISPATCH' WHERE order_id = ?",
+                (order['order_id'],)
+            )
+            dispatch_status = 'READY_FOR_DISPATCH'
         
         conn.commit()
         conn.close()
@@ -178,7 +449,10 @@ def verify_pick():
             "status": "SUCCESS",
             "result": result,
             "errors": errors,
-            "verification_time": 500
+            "verification_time": 500,
+            "order_status": dispatch_status or order['status'],
+            "order_status_label": (dispatch_status or order['status']).replace('_', ' ').title(),
+            "remaining_inventory": remaining_quantity
         })
     except Exception as e:
         return jsonify({"status": "ERROR", "message": str(e)}), 500
@@ -214,7 +488,21 @@ def dashboard_data():
         
         # Get recent logs
         recent_logs = conn.execute('''
-            SELECT * FROM verification_log ORDER BY timestamp DESC LIMIT 10
+            SELECT vl.*, o.item_name, o.required_quantity, o.destination, o.location, o.status AS order_status,
+                   i.quantity AS remaining_inventory
+            FROM verification_log vl
+            JOIN orders o ON o.order_id = vl.order_id
+            LEFT JOIN inventory i ON i.sku = o.sku AND i.batch_code = o.target_batch
+            ORDER BY vl.timestamp DESC LIMIT 10
+        ''').fetchall()
+
+        dispatch_orders = conn.execute('''
+                 SELECT o.order_id, o.sku, o.item_name, o.required_quantity, o.target_batch,
+                     o.destination, o.location, o.dispatcher_name, o.status, o.created_at,
+                   i.quantity AS remaining_inventory
+            FROM orders o
+            LEFT JOIN inventory i ON i.sku = o.sku AND i.batch_code = o.target_batch
+            ORDER BY o.order_id DESC LIMIT 20
         ''').fetchall()
         
         # Get order status
@@ -244,8 +532,12 @@ def dashboard_data():
             "rejected": rejected,
             "accuracy_rate": accuracy,
             "pending_orders": order_counts.get("PENDING", 0),
-            "completed_orders": order_counts.get("COMPLETED", 0),
+            "completed_orders": order_counts.get("COMPLETED", 0) + order_counts.get("READY_FOR_DISPATCH", 0),
             "recent_logs": [dict(log) for log in recent_logs],
+            "dispatch_orders": [
+                {**dict(order), "status_label": order['status'].replace('_', ' ').title()}
+                for order in dispatch_orders
+            ],
             "orders": order_counts,
             "alerts": {dict(a)['severity']: dict(a)['count'] for a in alerts}
         })
