@@ -1,0 +1,9 @@
+/* Custom WMS Overrides */
+body {
+    min-height: 100vh;
+    font-family: system-ui, -apple-system, sans-serif;
+}
+
+.table th {
+    font-weight: 600;
+}

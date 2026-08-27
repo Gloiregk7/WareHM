@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2 class="mb-4"><i class="bi bi-list-check me-2"></i>Active Picking Queue</h2>
+<div class="table-responsive">
+    <table class="table table-striped table-hover shadow-sm align-middle">
+        <thead class="table-dark">
+            <tr>
+                <th>Order ID</th>
+                <th>SKU</th>
+                <th>Item Name</th>
+                <th>Target Batch</th>
+                <th>Expiry Date</th>
+                <th>Location</th>
+                <th>Destination</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody id="orders-table-body">
+            <tr><td colspan="8" class="text-center text-muted">Loading orders...</td></tr>
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/orders.js') }}"></script>
+{% endblock %}
