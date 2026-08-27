@@ -15,11 +15,11 @@
                     <input type="hidden" name="next" value="{{ next or '' }}">
                     <div class="mb-3">
                         <label for="operator_name" class="form-label">Staff Name</label>
-                        <input id="operator_name" name="operator_name" class="form-control" required autocomplete="name" placeholder="Enter your registered name">
+                        <input id="operator_name" name="operator_name" class="form-control" required autocomplete="name">
                     </div>
                     <div class="mb-4">
                         <label for="staff_id" class="form-label">Staff ID</label>
-                        <input id="staff_id" name="staff_id" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" class="form-control" required placeholder="e.g. 0001">
+                        <input id="staff_id" name="staff_id" type="text" class="form-control" required>
                     </div>
                     <button type="submit" class="btn btn-primary w-100">
                         <i class="bi bi-box-arrow-in-right me-1"></i>Sign In

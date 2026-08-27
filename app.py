@@ -49,7 +49,7 @@ def login():
                 FROM staff
                                 WHERE employee_id = ? AND status = 'ACTIVE'
                   AND lower(trim(operator_name)) = lower(trim(?))
-                        ''', (staff_id.zfill(4), operator_name)).fetchone()
+                        ''', (staff_id, operator_name)).fetchone()
             conn.close()
         except Exception as e:
             if request.is_json:

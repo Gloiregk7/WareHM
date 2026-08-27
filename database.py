@@ -11,10 +11,10 @@ def init_db():
     
     # Insert sample staff members
     sample_staff = [
-        ('Allan Kamau', '0001', 'Warehouse Operations', 'warehouse_staff'),
-        ('Gloire Mugisha', '0002', 'Warehouse Operations', 'warehouse_staff'),
-        ('Stacy Wangeci', '0003', 'Warehouse Operations', 'warehouse_staff'),
-        ('MaryCynthia Gitau', '0004', 'Warehouse Operations', 'warehouse_staff'),
+        ('Allan Kamau', 'sct221-0673/20223', 'Warehouse Operations', 'warehouse_staff'),
+        ('Gloire Mugisha', 'sct221-0971/2021', 'Warehouse Operations', 'warehouse_staff'),
+        ('Stacy Wangeci', 'sct221-0635/2023', 'Warehouse Operations', 'warehouse_staff'),
+        ('MaryCynthia Gitau', 'sct221-0730/2023', 'Warehouse Operations', 'warehouse_staff'),
     ]
     
     cursor.executemany('''
