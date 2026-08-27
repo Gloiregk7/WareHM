@@ -84,7 +84,7 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
-# ==================== FRONTEND PAGES ====================
+#  FRONTEND PAGES 
 
 @app.route('/')
 @app.route('/orders')
@@ -111,7 +111,7 @@ def reports_page():
 def inventory_page():
     return render_template('inventory.html')
 
-# ==================== HEALTH CHECK ====================
+#  HEALTH CHECK 
 
 @app.route('/api/health')
 def health_check():
@@ -123,7 +123,7 @@ def health_check():
     except Exception as e:
         return jsonify({"status": "ERROR", "message": str(e)}), 500
 
-# ==================== STAFF API ====================
+# STAFF API 
 
 @app.route('/api/staff', methods=['GET'])
 def get_staff():
@@ -166,7 +166,7 @@ def get_staff_detail(staff_id):
     except Exception as e:
         return jsonify({"status": "ERROR", "message": str(e)}), 500
 
-# ==================== ORDERS API ====================
+# ORDERS API
 
 @app.route('/api/inventory', methods=['GET'])
 def get_inventory():
@@ -368,7 +368,7 @@ def get_order_detail(order_id):
     except Exception as e:
         return jsonify({"status": "ERROR", "message": str(e)}), 500
 
-# ==================== VERIFICATION API ====================
+# VERIFICATION API
 
 @app.route('/api/verify', methods=['POST'])
 def verify_pick():
@@ -457,7 +457,7 @@ def verify_pick():
     except Exception as e:
         return jsonify({"status": "ERROR", "message": str(e)}), 500
 
-# ==================== ALERTS API ====================
+# Alerts API
 
 @app.route('/api/alerts', methods=['GET'])
 def get_alerts():
@@ -469,7 +469,7 @@ def get_alerts():
     except Exception as e:
         return jsonify({"status": "ERROR", "message": str(e)}), 500
 
-# ==================== DASHBOARD API ====================
+# DASHBOARD API 
 
 @app.route('/api/dashboard')
 def dashboard_data():
@@ -544,7 +544,7 @@ def dashboard_data():
     except Exception as e:
         return jsonify({"status": "ERROR", "message": str(e)}), 500
 
-# ==================== REPORTS API ====================
+# REPORTS API
 
 @app.route('/api/reports/accuracy')
 def accuracy_report():

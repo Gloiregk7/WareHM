@@ -277,10 +277,6 @@ class VisionSystem:
 # Utility function for testing with dummy image
 def create_test_image(sku, batch, expiry):
     """Create a test image for development"""
-    if not HAS_NUMPY or not HAS_CV2:
-        print("NumPy or OpenCV not available - skipping test image creation")
-        return None
-    
     img = np.ones((600, 800, 3), dtype=np.uint8) * 255
     
     # Add text

@@ -3,49 +3,6 @@ import os
 import sqlite3
 from datetime import datetime
 import time
-        import traceback
-        
-        app = Flask(__name__)
-        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-        DB_NAME = os.path.join(BASE_DIR, 'kemsa_wms.db')
-        
-        # Import custom modules with graceful fallbacks
-        try:
-            from vision_system import VisionSystem
-            vision_system = VisionSystem()
-            VISION_AVAILABLE = True
-        except Exception as e:
-            print(f"⚠️ Vision system unavailable: {e}")
-            vision_system = None
-            VISION_AVAILABLE = False
-        
-        try:
-            from middleware import Middleware
-            middleware = Middleware()
-        except Exception as e:
-            print(f"⚠️ Middleware unavailable: {e}")
-            middleware = None
-        
-        try:
-            from alerts import AlertSystem
-            alert_system = AlertSystem(DB_NAME)
-        except Exception as e:
-            print(f"⚠️ Alert system unavailable: {e}")
-            alert_system = None
-        
-        try:
-            from audit_system import AuditSystem
-            audit_system = AuditSystem(DB_NAME)
-        except Exception as e:
-            print(f"⚠️ Audit system unavailable: {e}")
-            audit_system = None
-        
-        try:
-            from reports import ReportingSystem
-            reporting_system = ReportingSystem(DB_NAME)
-        except Exception as e:
-            print(f"⚠️ Reporting system unavailable: {e}")
-            reporting_system = None
 
 # Import custom modules
 from vision_system import VisionSystem
@@ -70,7 +27,7 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
-# ==================== FRONTEND PAGES ====================
+#  FRONTEND PAGES 
 
 @app.route('/')
 @app.route('/orders')
@@ -93,7 +50,7 @@ def staff_page():
 def reports_page():
     return render_template('reports.html')
 
-# ==================== STAFF & USER MANAGEMENT ====================
+# STAFF & USER MANAGEMENT 
 
 @app.route('/api/staff', methods=['GET'])
 def get_staff():
@@ -154,7 +111,7 @@ def get_staff_detail(staff_id):
     except Exception as e:
         return jsonify({"status": "ERROR", "message": str(e)}), 500
 
-# ==================== ORDER MANAGEMENT ====================
+#  ORDER MANAGEMENT 
 
 @app.route('/api/orders', methods=['GET'])
 def get_orders():
@@ -215,7 +172,7 @@ def create_order():
     except Exception as e:
         return jsonify({"status": "ERROR", "message": str(e)}), 500
 
-# ==================== VISION & VERIFICATION SYSTEM ====================
+# Vision and verification system
 
 @app.route('/api/verify', methods=['POST'])
 def verify_pick():
@@ -334,7 +291,7 @@ def verify_batch():
     except Exception as e:
         return jsonify({"status": "ERROR", "message": str(e)}), 500
 
-# ==================== ALERT MANAGEMENT ====================
+# Alert management
 
 @app.route('/api/alerts', methods=['GET'])
 def get_alerts():
@@ -361,7 +318,7 @@ def get_alert_stats():
     stats = alert_system.get_alert_statistics()
     return jsonify(stats)
 
-# ==================== AUDIT & TRACKING ====================
+# Audit and tracking
 
 @app.route('/api/audit', methods=['GET'])
 def get_audit_trail():
@@ -395,7 +352,7 @@ def get_compliance_report():
     report = audit_system.generate_compliance_report(start_date, end_date)
     return jsonify(report)
 
-# ==================== REPORTING & ANALYTICS ====================
+# Reporting and analytics
 
 @app.route('/api/reports/accuracy', methods=['GET'])
 def get_accuracy_report():
@@ -431,7 +388,7 @@ def get_compliance_dashboard():
     data = reporting_system.get_compliance_dashboard_data()
     return jsonify(data)
 
-# ==================== DASHBOARD & METRICS ====================
+# Dashboard and metrics
 
 @app.route('/api/dashboard', methods=['GET'])
 def get_dashboard_metrics():
@@ -468,7 +425,7 @@ def get_dashboard_metrics():
     except Exception as e:
         return jsonify({"status": "ERROR", "message": str(e)}), 500
 
-# ==================== MIDDLEWARE & SYSTEM ====================
+# Middleware and system
 
 @app.route('/api/middleware/devices', methods=['POST'])
 def register_device():
@@ -495,7 +452,7 @@ def device_heartbeat(device_id):
     result = middleware.handle_device_heartbeat(device_id)
     return jsonify(result)
 
-# ==================== ERROR HANDLERS ====================
+# Error handlers
 
 @app.errorhandler(404)
 def not_found(error):
