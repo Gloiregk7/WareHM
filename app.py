@@ -4,23 +4,9 @@ import sqlite3
 from datetime import datetime
 import time
 
-# Import custom modules
-from vision_system import VisionSystem
-from middleware import Middleware
-from alerts import AlertSystem
-from audit_system import AuditSystem
-from reports import ReportingSystem
-
 app = Flask(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_NAME = os.path.join(BASE_DIR, 'kemsa_wms.db')
-
-# Initialize systems
-vision_system = VisionSystem()
-middleware = Middleware()
-alert_system = AlertSystem(DB_NAME)
-audit_system = AuditSystem(DB_NAME)
-reporting_system = ReportingSystem(DB_NAME)
 
 def get_db_connection():
     conn = sqlite3.connect(DB_NAME)
@@ -50,11 +36,22 @@ def staff_page():
 def reports_page():
     return render_template('reports.html')
 
-# ==================== STAFF & USER MANAGEMENT ====================
+# ==================== HEALTH CHECK ====================
+
+@app.route('/api/health')
+def health_check():
+    try:
+        conn = get_db_connection()
+        conn.execute("SELECT 1")
+        conn.close()
+        return jsonify({"status": "OK", "database": "connected"})
+    except Exception as e:
+        return jsonify({"status": "ERROR", "message": str(e)}), 500
+
+# ==================== STAFF API ====================
 
 @app.route('/api/staff', methods=['GET'])
 def get_staff():
-    """Get all staff members"""
     try:
         conn = get_db_connection()
         staff = conn.execute(
@@ -67,57 +64,39 @@ def get_staff():
 
 @app.route('/api/staff', methods=['POST'])
 def create_staff():
-    """Register new staff member"""
     try:
         data = request.json
         conn = get_db_connection()
-        
         conn.execute('''
             INSERT INTO staff (operator_name, employee_id, department, role)
             VALUES (?, ?, ?, ?)
         ''', (data['operator_name'], data['employee_id'], data['department'], data.get('role', 'warehouse_staff')))
-        
         conn.commit()
         staff_id = conn.lastrowid
         conn.close()
-        
-        return jsonify({"status": "SUCCESS", "staff_id": staff_id, "message": "Staff member registered"})
+        return jsonify({"status": "SUCCESS", "staff_id": staff_id})
     except Exception as e:
         return jsonify({"status": "ERROR", "message": str(e)}), 500
 
 @app.route('/api/staff/<int:staff_id>', methods=['GET'])
 def get_staff_detail(staff_id):
-    """Get staff details and performance"""
     try:
         conn = get_db_connection()
-        staff = conn.execute(
-            "SELECT * FROM staff WHERE staff_id = ?", (staff_id,)
-        ).fetchone()
-        
+        staff = conn.execute("SELECT * FROM staff WHERE staff_id = ?", (staff_id,)).fetchone()
         if not staff:
-            conn.close()
             return jsonify({"status": "ERROR", "message": "Staff not found"}), 404
-        
-        performance = conn.execute(
-            "SELECT * FROM staff_performance WHERE staff_id = ?", (staff_id,)
-        ).fetchone()
-        
+        performance = conn.execute("SELECT * FROM staff_performance WHERE staff_id = ?", (staff_id,)).fetchone()
         conn.close()
-        
-        return jsonify({
-            "staff": dict(staff),
-            "performance": dict(performance) if performance else None
-        })
+        return jsonify({"staff": dict(staff), "performance": dict(performance) if performance else None})
     except Exception as e:
         return jsonify({"status": "ERROR", "message": str(e)}), 500
 
-# ==================== ORDER MANAGEMENT ====================
+# ==================== ORDERS API ====================
 
 @app.route('/api/orders', methods=['GET'])
 def get_orders():
-    """Get pending orders"""
-    status = request.args.get('status', 'PENDING')
     try:
+        status = request.args.get('status', 'PENDING')
         conn = get_db_connection()
         orders = conn.execute(
             "SELECT * FROM orders WHERE status = ? ORDER BY created_at DESC", (status,)
@@ -129,338 +108,168 @@ def get_orders():
 
 @app.route('/api/orders/<int:order_id>', methods=['GET'])
 def get_order_detail(order_id):
-    """Get order details"""
     try:
         conn = get_db_connection()
         order = conn.execute("SELECT * FROM orders WHERE order_id = ?", (order_id,)).fetchone()
-        
         if not order:
-            conn.close()
             return jsonify({"status": "ERROR", "message": "Order not found"}), 404
-        
-        alerts = conn.execute(
-            "SELECT * FROM pick_alerts WHERE order_id = ? ORDER BY created_at DESC", (order_id,)
-        ).fetchall()
-        
+        alerts = conn.execute("SELECT * FROM pick_alerts WHERE order_id = ?", (order_id,)).fetchall()
         conn.close()
-        
-        return jsonify({
-            "order": dict(order),
-            "alerts": [dict(a) for a in alerts]
-        })
+        return jsonify({"order": dict(order), "alerts": [dict(a) for a in alerts]})
     except Exception as e:
         return jsonify({"status": "ERROR", "message": str(e)}), 500
 
-@app.route('/api/orders', methods=['POST'])
-def create_order():
-    """Create new order"""
-    try:
-        data = request.json
-        conn = get_db_connection()
-        
-        conn.execute('''
-            INSERT INTO orders (sku, item_name, target_batch, required_quantity, expiry_date, location, destination)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (data['sku'], data['item_name'], data['target_batch'], data.get('required_quantity', 1),
-              data['expiry_date'], data['location'], data['destination']))
-        
-        conn.commit()
-        order_id = conn.lastrowid
-        conn.close()
-        
-        return jsonify({"status": "SUCCESS", "order_id": order_id, "message": "Order created"})
-    except Exception as e:
-        return jsonify({"status": "ERROR", "message": str(e)}), 500
-
-# ==================== VISION & VERIFICATION SYSTEM ====================
+# ==================== VERIFICATION API ====================
 
 @app.route('/api/verify', methods=['POST'])
 def verify_pick():
-    """
-    Main verification endpoint
-    Processes vision system input and verifies against order
-    """
     try:
         data = request.json
-        order_id = data.get('order_id')
-        staff_id = data.get('staff_id', 1)
-        station_id = data.get('station_id', 'STATION-01')
-        image_source = data.get('image_source', 0)
-        
-        # Get order
+        if not data:
+            return jsonify({"status": "ERROR", "message": "Request body is required"}), 400
+
         conn = get_db_connection()
-        order = conn.execute("SELECT * FROM orders WHERE order_id = ?", (order_id,)).fetchone()
-        conn.close()
         
+        # Get order details
+        order = conn.execute("SELECT * FROM orders WHERE order_id = ?", (data['order_id'],)).fetchone()
         if not order:
             return jsonify({"status": "ERROR", "message": "Order not found"}), 404
         
-        # Process image
-        image_result = vision_system.capture_and_process_image(image_source)
+        # Simulate verification logic
+        errors = []
+        result = "APPROVED"
         
-        if image_result["status"] == "ERROR":
-            return jsonify(image_result), 500
+        scanned_sku = data.get('sku')
+        scanned_batch = data.get('batch', data.get('batch_code'))
+        scanned_expiry = data.get('expiry', data.get('expiry_date'))
+
+        if order['sku'] != scanned_sku:
+            errors.append({"code": "SKU_MISMATCH", "message": "Scanned SKU does not match the order"})
+            result = "REJECTED"
         
-        # Verify pick
-        order_data = {
-            'sku': order['sku'],
-            'target_batch': order['target_batch'],
-            'expiry_date': order['expiry_date']
-        }
+        if order['target_batch'] != scanned_batch:
+            errors.append({"code": "BATCH_MISMATCH", "message": "Scanned batch does not match the order"})
+            result = "REJECTED"
         
-        verification_result = vision_system.verify_pick(image_result, order_data)
+        if order['expiry_date'] != scanned_expiry:
+            errors.append({"code": "EXPIRY_MISMATCH", "message": "Scanned expiry date does not match the order"})
+            result = "REJECTED"
         
-        # Get error codes
-        error_codes = ",".join([e['code'] for e in verification_result['errors']]) if verification_result['errors'] else None
-        
-        # Log transaction
-        conn = get_db_connection()
+        # Log the verification
         conn.execute('''
-            INSERT INTO verification_log 
-            (order_id, sku, scanned_batch, scanned_expiry, result, error_codes, operator_id, station_id, verification_time)
+            INSERT INTO verification_log (order_id, sku, scanned_batch, scanned_expiry, result, error_codes, operator_id, station_id, verification_time)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (order_id, order['sku'], 
-              verification_result['scanned_data'].get('batch'),
-              verification_result['scanned_data'].get('expiry'),
-              verification_result['status'], error_codes, staff_id, station_id, 
-              verification_result['verification_time']))
-        
-        if verification_result['status'] == "APPROVED":
-            conn.execute("UPDATE orders SET status = 'COMPLETED' WHERE order_id = ?", (order_id,))
-        else:
-            # Create alerts for each error
-            for error in verification_result['errors']:
-                alert_system.create_alert(
-                    order_id, 
-                    error['code'], 
-                    error['code'],
-                    error['message'],
-                    error['severity']
-                )
+        ''', (
+            data['order_id'],
+            data.get('sku'),
+            scanned_batch,
+            scanned_expiry,
+            result,
+            ','.join(error["code"] for error in errors) if errors else None,
+            data.get('operator_id', data.get('staff_id', 1)),
+            data.get('station_id', 1),
+            0.5
+        ))
         
         conn.commit()
         conn.close()
         
-        # Log to audit trail
-        audit_system.log_picking_transaction(
-            staff_id, order_id, order['sku'],
-            verification_result['scanned_data'].get('batch'),
-            verification_result['scanned_data'].get('expiry'),
-            verification_result['status'], error_codes, station_id,
-            verification_result['verification_time']
-        )
-        
-        # Trigger alerts
-        alert_data = None
-        if verification_result['status'] == "REJECTED":
-            alert_data = alert_system.trigger_visual_alert(
-                error_codes.split(',')[0] if error_codes else 'PICKING_ERROR',
-                verification_result['errors'][0]['message'] if verification_result['errors'] else 'Unknown error'
-            )
-        
-        return jsonify({
-            "result": verification_result['status'],
-            "errors": verification_result['errors'],
-            "verification_time": verification_result['verification_time'],
-            "alert": alert_data
-        })
-        
-    except Exception as e:
-        return jsonify({"status": "ERROR", "message": str(e)}), 500
-
-@app.route('/api/verify/batch', methods=['POST'])
-def verify_batch():
-    """Verify multiple picks in batch"""
-    try:
-        data = request.json
-        picks = data.get('picks', [])
-        staff_id = data.get('staff_id', 1)
-        
-        results = []
-        for pick in picks:
-            pick['staff_id'] = staff_id
-            # Call individual verify for each pick
-            result = verify_pick()
-            results.append(result.json)
-        
         return jsonify({
             "status": "SUCCESS",
-            "batch_size": len(picks),
-            "results": results
+            "result": result,
+            "errors": errors,
+            "verification_time": 500
         })
     except Exception as e:
         return jsonify({"status": "ERROR", "message": str(e)}), 500
 
-# ==================== ALERT MANAGEMENT ====================
+# ==================== ALERTS API ====================
 
 @app.route('/api/alerts', methods=['GET'])
 def get_alerts():
-    """Get all active alerts"""
-    limit = request.args.get('limit', 50, type=int)
-    alerts = alert_system.get_active_alerts(limit)
-    return jsonify({"alerts": alerts})
+    try:
+        conn = get_db_connection()
+        alerts = conn.execute("SELECT * FROM pick_alerts WHERE alert_status = 'ACTIVE' ORDER BY created_at DESC LIMIT 50").fetchall()
+        conn.close()
+        return jsonify({"alerts": [dict(a) for a in alerts]})
+    except Exception as e:
+        return jsonify({"status": "ERROR", "message": str(e)}), 500
 
-@app.route('/api/alerts/<int:order_id>', methods=['GET'])
-def get_order_alerts(order_id):
-    """Get alerts for specific order"""
-    alerts = alert_system.get_alerts_by_order(order_id)
-    return jsonify({"alerts": alerts, "order_id": order_id})
+# ==================== DASHBOARD API ====================
 
-@app.route('/api/alerts/<int:alert_id>/resolve', methods=['PUT'])
-def resolve_alert(alert_id):
-    """Resolve an alert"""
-    result = alert_system.resolve_alert(alert_id)
-    return jsonify(result)
-
-@app.route('/api/alerts/statistics', methods=['GET'])
-def get_alert_stats():
-    """Get alert statistics"""
-    stats = alert_system.get_alert_statistics()
-    return jsonify(stats)
-
-# ==================== AUDIT & TRACKING ====================
-
-@app.route('/api/audit', methods=['GET'])
-def get_audit_trail():
-    """Get audit trail"""
-    order_id = request.args.get('order_id', type=int)
-    staff_id = request.args.get('staff_id', type=int)
-    action = request.args.get('action')
-    limit = request.args.get('limit', 100, type=int)
-    
-    records = audit_system.get_audit_trail(order_id, staff_id, action, limit)
-    return jsonify({"audit_records": records})
-
-@app.route('/api/audit/order/<int:order_id>', methods=['GET'])
-def get_order_history(order_id):
-    """Get complete picking history for order"""
-    history = audit_system.get_picking_history(order_id)
-    return jsonify(history)
-
-@app.route('/api/audit/staff/<int:staff_id>', methods=['GET'])
-def get_staff_history(staff_id):
-    """Get staff audit history"""
-    days = request.args.get('days', 30, type=int)
-    history = audit_system.get_staff_audit_history(staff_id, days)
-    return jsonify(history)
-
-@app.route('/api/compliance-report', methods=['GET'])
-def get_compliance_report():
-    """Generate compliance report"""
-    start_date = request.args.get('start_date')
-    end_date = request.args.get('end_date')
-    report = audit_system.generate_compliance_report(start_date, end_date)
-    return jsonify(report)
-
-# ==================== REPORTING & ANALYTICS ====================
-
-@app.route('/api/reports/accuracy', methods=['GET'])
-def get_accuracy_report():
-    """Get picking accuracy report"""
-    start_date = request.args.get('start_date')
-    end_date = request.args.get('end_date')
-    report = reporting_system.get_picking_accuracy_report(start_date, end_date)
-    return jsonify(report)
-
-@app.route('/api/reports/staff-performance', methods=['GET'])
-def get_staff_performance():
-    """Get staff performance report"""
-    staff_id = request.args.get('staff_id', type=int)
-    report = reporting_system.get_staff_performance_report(staff_id)
-    return jsonify(report)
-
-@app.route('/api/reports/inventory', methods=['GET'])
-def get_inventory_report():
-    """Get inventory verification report"""
-    report = reporting_system.get_inventory_verification_report()
-    return jsonify(report)
-
-@app.route('/api/reports/error-trends', methods=['GET'])
-def get_error_trends():
-    """Get error trend report"""
-    days = request.args.get('days', 30, type=int)
-    report = reporting_system.get_error_trend_report(days)
-    return jsonify(report)
-
-@app.route('/api/reports/dashboard', methods=['GET'])
-def get_compliance_dashboard():
-    """Get comprehensive compliance dashboard data"""
-    data = reporting_system.get_compliance_dashboard_data()
-    return jsonify(data)
-
-# ==================== DASHBOARD & METRICS ====================
-
-@app.route('/api/dashboard', methods=['GET'])
-def get_dashboard_metrics():
-    """Get main dashboard metrics"""
+@app.route('/api/dashboard')
+def dashboard_data():
     try:
         conn = get_db_connection()
         
-        total_picks = conn.execute("SELECT COUNT(*) FROM verification_log").fetchone()[0]
-        approved = conn.execute("SELECT COUNT(*) FROM verification_log WHERE result = 'APPROVED'").fetchone()[0]
-        rejected = conn.execute("SELECT COUNT(*) FROM verification_log WHERE result = 'REJECTED'").fetchone()[0]
-        active_alerts = conn.execute("SELECT COUNT(*) FROM pick_alerts WHERE alert_status = 'ACTIVE'").fetchone()[0]
+        # Get metrics
+        stats = conn.execute('''
+            SELECT 
+                COUNT(*) as total_picks,
+                SUM(CASE WHEN result = 'APPROVED' THEN 1 ELSE 0 END) as approved,
+                SUM(CASE WHEN result = 'REJECTED' THEN 1 ELSE 0 END) as rejected,
+                ROUND(100.0 * SUM(CASE WHEN result = 'APPROVED' THEN 1 ELSE 0 END) / COUNT(*), 1) as accuracy
+            FROM verification_log
+        ''').fetchone()
         
-        pending_orders = conn.execute("SELECT COUNT(*) FROM orders WHERE status = 'PENDING'").fetchone()[0]
-        completed_orders = conn.execute("SELECT COUNT(*) FROM orders WHERE status = 'COMPLETED'").fetchone()[0]
+        # Get recent logs
+        recent_logs = conn.execute('''
+            SELECT * FROM verification_log ORDER BY timestamp DESC LIMIT 10
+        ''').fetchall()
         
-        logs = conn.execute(
-            "SELECT * FROM verification_log ORDER BY timestamp DESC LIMIT 10"
-        ).fetchall()
+        # Get order status
+        orders = conn.execute('''
+            SELECT status, COUNT(*) as count FROM orders GROUP BY status
+        ''').fetchall()
+        
+        # Get alerts
+        alerts = conn.execute('''
+            SELECT severity, COUNT(*) as count FROM pick_alerts 
+            WHERE alert_status = 'ACTIVE' GROUP BY severity
+        ''').fetchall()
         
         conn.close()
         
-        accuracy = round(100 * approved / total_picks, 2) if total_picks > 0 else 0
-        
+        stats_data = dict(stats) if stats else {}
+        total_picks = stats_data.get("total_picks") or 0
+        approved = stats_data.get("approved") or 0
+        rejected = stats_data.get("rejected") or 0
+        accuracy = stats_data.get("accuracy") or 0
+        order_counts = {dict(o)['status']: dict(o)['count'] for o in orders}
+
         return jsonify({
+            "stats": stats_data,
             "total_picks": total_picks,
             "approved": approved,
             "rejected": rejected,
             "accuracy_rate": accuracy,
-            "active_alerts": active_alerts,
-            "pending_orders": pending_orders,
-            "completed_orders": completed_orders,
-            "recent_logs": [dict(log) for log in logs]
+            "pending_orders": order_counts.get("PENDING", 0),
+            "completed_orders": order_counts.get("COMPLETED", 0),
+            "recent_logs": [dict(log) for log in recent_logs],
+            "orders": order_counts,
+            "alerts": {dict(a)['severity']: dict(a)['count'] for a in alerts}
         })
     except Exception as e:
         return jsonify({"status": "ERROR", "message": str(e)}), 500
 
-# ==================== MIDDLEWARE & SYSTEM ====================
+# ==================== REPORTS API ====================
 
-@app.route('/api/middleware/devices', methods=['POST'])
-def register_device():
-    """Register hardware device"""
-    data = request.json
-    result = middleware.register_device(data['device_id'], data['device_type'], data['endpoint'])
-    return jsonify(result)
-
-@app.route('/api/middleware/status', methods=['GET'])
-def get_system_status():
-    """Get system status"""
-    status = middleware.get_system_status()
-    return jsonify(status)
-
-@app.route('/api/middleware/health', methods=['GET'])
-def check_device_health():
-    """Check device health"""
-    health = middleware.check_device_health()
-    return jsonify(health)
-
-@app.route('/api/middleware/heartbeat/<device_id>', methods=['POST'])
-def device_heartbeat(device_id):
-    """Receive device heartbeat"""
-    result = middleware.handle_device_heartbeat(device_id)
-    return jsonify(result)
-
-# ==================== ERROR HANDLERS ====================
-
-@app.errorhandler(404)
-def not_found(error):
-    return jsonify({"status": "ERROR", "message": "Endpoint not found"}), 404
-
-@app.errorhandler(500)
-def server_error(error):
-    return jsonify({"status": "ERROR", "message": "Internal server error"}), 500
+@app.route('/api/reports/accuracy')
+def accuracy_report():
+    try:
+        conn = get_db_connection()
+        report = conn.execute('''
+            SELECT 
+                COUNT(*) as total_picks,
+                SUM(CASE WHEN result = 'APPROVED' THEN 1 ELSE 0 END) as approved,
+                SUM(CASE WHEN result = 'REJECTED' THEN 1 ELSE 0 END) as rejected,
+                ROUND(100.0 * SUM(CASE WHEN result = 'APPROVED' THEN 1 ELSE 0 END) / COUNT(*), 2) as accuracy_percentage
+            FROM verification_log
+        ''').fetchone()
+        conn.close()
+        return jsonify(dict(report) if report else {})
+    except Exception as e:
+        return jsonify({"status": "ERROR", "message": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

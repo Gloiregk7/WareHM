@@ -4,7 +4,7 @@ async function loadOrders() {
     const tbody = document.getElementById('orders-table-body');
     
     if (orders.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No pending orders.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted">No pending orders.</td></tr>';
         return;
     }
 
@@ -18,6 +18,9 @@ async function loadOrders() {
             <td><i class="bi bi-geo-alt me-1"></i>${order.location}</td>
             <td>${order.destination}</td>
             <td><span class="badge bg-warning text-dark">${order.status}</span></td>
+            <td><a class="btn btn-sm btn-primary" href="/verify?order_id=${order.order_id}">
+                <i class="bi bi-check2-circle me-1"></i>Verify
+            </a></td>
         </tr>
     `).join('');
 }
