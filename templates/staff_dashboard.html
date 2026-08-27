@@ -1,0 +1,211 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container-fluid">
+    <h2 class="mb-4"><i class="bi bi-people me-2"></i>Staff Performance Dashboard</h2>
+    
+    <!-- Staff Performance Cards -->
+    <div id="staff-performance" class="row mb-4">
+        <!-- Populated by JavaScript -->
+    </div>
+    
+    <!-- Detailed Performance Table -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-dark text-white">
+                    <h5 class="mb-0">👥 Staff Performance Details</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Staff Name</th>
+                                    <th>Employee ID</th>
+                                    <th>Total Picks</th>
+                                    <th>Successful</th>
+                                    <th>Failed</th>
+                                    <th>Accuracy Rate</th>
+                                    <th>Avg Time (ms)</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="performance-table-body">
+                                <tr><td colspan="8" class="text-center text-muted">Loading performance data...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Individual Staff Detail Modal -->
+    <div class="modal fade" id="staffDetailModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title">Staff Detail & Audit Trail</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="staff-detail-content">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.performance-card {
+    border-left: 4px solid;
+    transition: transform 0.2s;
+}
+
+.performance-card:hover {
+    transform: translateY(-5px);
+}
+
+.performance-card.high {
+    border-left-color: #28a745;
+}
+
+.performance-card.medium {
+    border-left-color: #ffc107;
+}
+
+.performance-card.low {
+    border-left-color: #dc3545;
+}
+</style>
+
+<script>
+function loadStaffPerformance() {
+    fetch('/api/reports/staff-performance')
+        .then(r => r.json())
+        .then(data => {
+            const performanceDiv = document.getElementById('staff-performance');
+            const tableBody = document.getElementById('performance-table-body');
+            
+            if (data.data && data.data.length > 0) {
+                // Populate cards
+                performanceDiv.innerHTML = data.data.map(staff => {
+                    const accuracy = staff.accuracy_rate || 0;
+                    const cardClass = accuracy >= 95 ? 'high' : accuracy >= 80 ? 'medium' : 'low';
+                    
+                    return `
+                        <div class="col-lg-4 col-md-6 mb-3">
+                            <div class="card performance-card shadow-sm ${cardClass}">
+                                <div class="card-body">
+                                    <h6 class="card-title">${staff.operator_name}</h6>
+                                    <small class="text-muted">ID: ${staff.employee_id}</small>
+                                    <hr>
+                                    <div class="mb-2">
+                                        <h4 class="mb-0">${accuracy.toFixed(1)}%</h4>
+                                        <small>Accuracy Rate</small>
+                                    </div>
+                                    <div class="mb-2">
+                                        <small><strong>Picks:</strong> ${staff.total_picks}</small>
+                                    </div>
+                                    <div class="mb-2">
+                                        <small><strong>Success:</strong> ${staff.successful_picks}</small>
+                                    </div>
+                                    <div class="mb-3">
+                                        <small><strong>Failed:</strong> ${staff.failed_picks}</small>
+                                    </div>
+                                    <button class="btn btn-sm btn-primary w-100" onclick="viewStaffDetail(${staff.staff_id})">
+                                        View Details
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                
+                // Populate table
+                tableBody.innerHTML = data.data.map(staff => `
+                    <tr>
+                        <td><strong>${staff.operator_name}</strong></td>
+                        <td>${staff.employee_id}</td>
+                        <td>${staff.total_picks || 0}</td>
+                        <td><span class="badge bg-success">${staff.successful_picks || 0}</span></td>
+                        <td><span class="badge bg-danger">${staff.failed_picks || 0}</span></td>
+                        <td>
+                            <span class="badge ${(staff.accuracy_rate || 0) >= 95 ? 'bg-success' : (staff.accuracy_rate || 0) >= 80 ? 'bg-warning' : 'bg-danger'}">
+                                ${(staff.accuracy_rate || 0).toFixed(1)}%
+                            </span>
+                        </td>
+                        <td>${(staff.avg_verification_time || 0).toFixed(2)}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-primary" onclick="viewStaffDetail(${staff.staff_id})">
+                                View
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+            } else {
+                performanceDiv.innerHTML = '<p class="text-muted">No staff performance data available</p>';
+                tableBody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No data</td></tr>';
+            }
+        })
+        .catch(err => console.error(err));
+}
+
+function viewStaffDetail(staffId) {
+    fetch(`/api/audit/staff/${staffId}?days=30`)
+        .then(r => r.json())
+        .then(data => {
+            const content = document.getElementById('staff-detail-content');
+            const staff = data.staff;
+            const actions = data.actions || [];
+            
+            content.innerHTML = `
+                <div class="mb-3">
+                    <h6>${staff.operator_name}</h6>
+                    <p><small><strong>Employee ID:</strong> ${staff.employee_id}</small></p>
+                    <p><small><strong>Department:</strong> ${staff.department}</small></p>
+                    <p><small><strong>Role:</strong> ${staff.role}</small></p>
+                    <p><small><strong>Status:</strong> <span class="badge bg-${staff.status === 'ACTIVE' ? 'success' : 'danger'}">${staff.status}</span></small></p>
+                </div>
+                <hr>
+                <h6>Recent Actions (Last 30 Days)</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Action</th>
+                                <th>Status</th>
+                                <th>Details</th>
+                                <th>Timestamp</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${actions.length === 0 ? '<tr><td colspan="4" class="text-center text-muted">No actions</td></tr>' : 
+                              actions.map(action => `
+                                <tr>
+                                    <td><small>${action.action}</small></td>
+                                    <td><span class="badge bg-secondary">${action.status}</span></td>
+                                    <td><small>${action.details || '-'}</small></td>
+                                    <td><small>${action.timestamp}</small></td>
+                                </tr>
+                              `).join('')
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            new bootstrap.Modal(document.getElementById('staffDetailModal')).show();
+        })
+        .catch(err => console.error(err));
+}
+
+// Load on page load
+loadStaffPerformance();
+
+// Refresh every 30 seconds
+setInterval(loadStaffPerformance, 30000);
+</script>
+{% endblock %}

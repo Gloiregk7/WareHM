@@ -1,0 +1,325 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container-fluid">
+    <h2 class="mb-4"><i class="bi bi-file-earmark-text me-2"></i>Reports & Analytics</h2>
+    
+    <!-- Date Range Filter -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-3">
+                    <label class="form-label">Start Date</label>
+                    <input type="date" id="startDate" class="form-control">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">End Date</label>
+                    <input type="date" id="endDate" class="form-control">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">&nbsp;</label>
+                    <button class="btn btn-primary w-100" onclick="applyDateFilter()">Apply Filter</button>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">&nbsp;</label>
+                    <button class="btn btn-secondary w-100" onclick="resetDateFilter()">Reset</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Picking Accuracy Report -->
+    <div class="row mb-4">
+        <div class="col-lg-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">📊 Picking Accuracy Report</h5>
+                </div>
+                <div class="card-body">
+                    <div id="accuracy-report">
+                        <p class="text-muted">Loading...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Inventory Verification Report -->
+        <div class="col-lg-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">📦 Inventory Status</h5>
+                </div>
+                <div class="card-body">
+                    <div id="inventory-report">
+                        <p class="text-muted">Loading...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Error Trends -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-warning text-dark">
+                    <h5 class="mb-0">⚠️ Error Trends (Last 7 Days)</h5>
+                </div>
+                <div class="card-body">
+                    <div id="error-trends">
+                        <p class="text-muted">Loading...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Compliance Dashboard -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-dark text-white">
+                    <h5 class="mb-0">📋 Compliance Summary</h5>
+                </div>
+                <div class="card-body">
+                    <div id="compliance-summary">
+                        <p class="text-muted">Loading...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Export Button -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <button class="btn btn-success" onclick="exportReport()">
+                <i class="bi bi-download me-2"></i>Export Report (CSV)
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentStartDate = null;
+let currentEndDate = null;
+
+function loadAccuracyReport() {
+    let url = '/api/reports/accuracy';
+    if (currentStartDate && currentEndDate) {
+        url += `?start_date=${currentStartDate}&end_date=${currentEndDate}`;
+    }
+    
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {
+            const container = document.getElementById('accuracy-report');
+            const metrics = data.metrics || {};
+            
+            container.innerHTML = `
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <p><strong>Total Picks</strong></p>
+                        <h4 class="text-primary">${metrics.total_picks || 0}</h4>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <p><strong>Accuracy Rate</strong></p>
+                        <h4 class="text-success">${(metrics.accuracy_percentage || 0).toFixed(1)}%</h4>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <p><strong>Approved</strong></p>
+                        <h4 class="text-success">${metrics.approved_picks || 0}</h4>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <p><strong>Rejected</strong></p>
+                        <h4 class="text-danger">${metrics.rejected_picks || 0}</h4>
+                    </div>
+                </div>
+                <hr>
+                <h6>Error Breakdown</h6>
+                ${Object.entries(data.error_breakdown || {}).map(([error, count]) => `
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>${error}</span>
+                        <span class="badge bg-danger">${count}</span>
+                    </div>
+                `).join('')}
+            `;
+        });
+}
+
+function loadInventoryReport() {
+    fetch('/api/reports/inventory')
+        .then(r => r.json())
+        .then(data => {
+            const container = document.getElementById('inventory-report');
+            const summary = data.summary || {};
+            
+            container.innerHTML = `
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <p><strong>Total Items</strong></p>
+                        <h4 class="text-primary">${summary.total_items || 0}</h4>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <p><strong>Total Quantity</strong></p>
+                        <h4 class="text-info">${summary.total_quantity || 0}</h4>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <p><strong>Expired</strong></p>
+                        <h4 class="text-danger">${summary.expired_items || 0}</h4>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <p><strong>Expiring Soon</strong></p>
+                        <h4 class="text-warning">${summary.expiring_soon || 0}</h4>
+                    </div>
+                </div>
+                <hr>
+                <h6>Low Stock Items</h6>
+                ${data.low_stock_items && data.low_stock_items.length > 0 ? 
+                    data.low_stock_items.map(item => `
+                        <div class="alert alert-warning py-2 mb-2">
+                            <small><strong>${item.sku}:</strong> ${item.quantity} units</small>
+                        </div>
+                    `).join('') : '<p class="text-muted">No low stock items</p>'
+                }
+            `;
+        });
+}
+
+function loadErrorTrends() {
+    fetch('/api/reports/error-trends?days=7')
+        .then(r => r.json())
+        .then(data => {
+            const container = document.getElementById('error-trends');
+            
+            let html = `
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Date</th>
+                                <th>Total Picks</th>
+                                <th>Rejected</th>
+                                <th>Error Rate</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            (data.daily_data || []).forEach(day => {
+                const errorRate = day.total_picks > 0 ? 
+                    ((day.rejected_picks / day.total_picks) * 100).toFixed(1) : 0;
+                
+                html += `
+                    <tr>
+                        <td>${day.date}</td>
+                        <td>${day.total_picks}</td>
+                        <td><span class="badge bg-danger">${day.rejected_picks}</span></td>
+                        <td>${errorRate}%</td>
+                    </tr>
+                `;
+            });
+            
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+                <hr>
+                <h6>Top Errors</h6>
+            `;
+            
+            (data.top_errors || []).slice(0, 5).forEach(error => {
+                html += `
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>${error.error}</span>
+                        <span class="badge bg-danger">${error.count}</span>
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+        });
+}
+
+function loadComplianceSummary() {
+    fetch('/api/reports/dashboard')
+        .then(r => r.json())
+        .then(data => {
+            const container = document.getElementById('compliance-summary');
+            const accuracy = data.accuracy?.metrics || {};
+            const performance = data.performance?.data || [];
+            
+            let html = `
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <div class="card bg-light">
+                            <div class="card-body text-center">
+                                <h6>System Accuracy</h6>
+                                <h3 class="text-success">${(accuracy.accuracy_percentage || 0).toFixed(1)}%</h3>
+                                <small>${accuracy.approved_picks || 0} of ${accuracy.total_picks || 0} successful</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card bg-light">
+                            <div class="card-body text-center">
+                                <h6>Active Staff</h6>
+                                <h3 class="text-primary">${performance.length}</h3>
+                                <small>Warehouse operators</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card bg-light">
+                            <div class="card-body text-center">
+                                <h6>Report Date</h6>
+                                <h6 class="text-muted">${new Date().toLocaleDateString()}</h6>
+                                <small>Generated by WMS</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <p><strong>System Status:</strong> <span class="badge bg-success">OPERATIONAL</span></p>
+            `;
+            
+            container.innerHTML = html;
+        });
+}
+
+function applyDateFilter() {
+    currentStartDate = document.getElementById('startDate').value;
+    currentEndDate = document.getElementById('endDate').value;
+    
+    if (!currentStartDate || !currentEndDate) {
+        alert('Please select both dates');
+        return;
+    }
+    
+    loadAllReports();
+}
+
+function resetDateFilter() {
+    currentStartDate = null;
+    currentEndDate = null;
+    document.getElementById('startDate').value = '';
+    document.getElementById('endDate').value = '';
+    loadAllReports();
+}
+
+function loadAllReports() {
+    loadAccuracyReport();
+    loadInventoryReport();
+    loadErrorTrends();
+    loadComplianceSummary();
+}
+
+function exportReport() {
+    alert('Export functionality coming soon. Reports can be generated via API.');
+}
+
+// Load reports on page load
+loadAllReports();
+
+// Refresh every 5 minutes
+setInterval(loadAllReports, 300000);
+</script>
+{% endblock %}

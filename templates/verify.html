@@ -1,30 +1,289 @@
 {% extends 'base.html' %}
 {% block content %}
-<h2 class="mb-4"><i class="bi bi-qr-code-scan me-2"></i>Package Verification Station</h2>
-<div id="alert-container"></div>
-
-<div class="card shadow-sm p-4 col-md-8 mx-auto">
-    <form id="verify-form">
-        <div class="mb-3">
-            <label class="form-label">Order ID</label>
-            <input type="number" id="order_id" class="form-control" required placeholder="e.g. 1">
+<div class="container-fluid verification-station">
+    <h2 class="mb-4"><i class="bi bi-qr-code-scan me-2"></i>Vision-Based Picking Verification Station</h2>
+    
+    <div class="row">
+        <!-- Order Selection Panel -->
+        <div class="col-lg-4">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">📋 Select Order</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Order ID</label>
+                        <input type="number" id="order_id" class="form-control" placeholder="Enter Order ID">
+                    </div>
+                    <button class="btn btn-primary w-100" onclick="loadOrder()">Load Order</button>
+                    
+                    <div id="order-details" class="mt-3" style="display: none;">
+                        <div class="alert alert-info small">
+                            <p class="mb-2"><strong>SKU:</strong> <span id="order-sku"></span></p>
+                            <p class="mb-2"><strong>Item:</strong> <span id="order-item"></span></p>
+                            <p class="mb-2"><strong>Batch:</strong> <span id="order-batch"></span></p>
+                            <p class="mb-2"><strong>Expiry:</strong> <span id="order-expiry"></span></p>
+                            <p class="mb-0"><strong>Destination:</strong> <span id="order-destination"></span></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
-        <div class="mb-3">
-            <label class="form-label">Scanned SKU</label>
-            <input type="text" id="sku" class="form-control" required placeholder="e.g. MED-101">
+        
+        <!-- Vision Capture Panel -->
+        <div class="col-lg-4">
+            <div class="card shadow-sm">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">📷 Vision System</h5>
+                </div>
+                <div class="card-body">
+                    <div class="camera-feed bg-dark text-white text-center p-5 rounded">
+                        <i class="bi bi-camera-video" style="font-size: 3rem; opacity: 0.5;"></i>
+                        <p class="mt-2">Camera Feed</p>
+                    </div>
+                    
+                    <button class="btn btn-success w-100 mt-3" onclick="captureImage()">
+                        📸 Capture Image
+                    </button>
+                    
+                    <div id="image-preview" class="mt-3" style="display: none;">
+                        <img id="preview-img" src="" class="img-fluid rounded">
+                    </div>
+                </div>
+            </div>
         </div>
-        <div class="mb-3">
-            <label class="form-label">Scanned Batch Code</label>
-            <input type="text" id="batch_code" class="form-control" required placeholder="e.g. BATCH-2026A">
+        
+        <!-- Verification Result Panel -->
+        <div class="col-lg-4">
+            <div class="card shadow-sm">
+                <div class="card-header" id="result-header" style="background-color: #6c757d;">
+                    <h5 class="mb-0 text-white">📊 Verification Result</h5>
+                </div>
+                <div class="card-body">
+                    <div id="verification-result" style="display: none;">
+                        <div id="result-alert" class="alert"></div>
+                        
+                        <div class="result-details bg-light p-3 rounded mb-3">
+                            <p class="mb-2"><strong>Status:</strong> <span id="result-status" class="badge bg-secondary"></span></p>
+                            <p class="mb-0"><strong>Time:</strong> <span id="result-time">0</span>ms</p>
+                        </div>
+                        
+                        <div id="errors-list" style="display: none;">
+                            <h6 class="text-danger mb-2">⚠️ Errors Detected:</h6>
+                            <ul id="error-items" class="list-unstyled small"></ul>
+                        </div>
+                        
+                        <button class="btn btn-secondary w-100 mt-3" onclick="resetVerification()">
+                            🔄 Next Pick
+                        </button>
+                    </div>
+                    
+                    <div id="no-result" class="text-center text-muted py-5">
+                        <i class="bi bi-hourglass-split" style="font-size: 2rem; opacity: 0.5;"></i>
+                        <p class="mt-2">Awaiting verification...</p>
+                    </div>
+                </div>
+            </div>
         </div>
-        <div class="mb-3">
-            <label class="form-label">Scanned Expiry Date</label>
-            <input type="date" id="expiry_date" class="form-control" required>
+    </div>
+    
+    <!-- Alerts Panel -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-warning">
+                    <h5 class="mb-0">⚠️ Active Alerts</h5>
+                </div>
+                <div class="card-body">
+                    <div id="alerts-container">
+                        <p class="text-muted">No active alerts</p>
+                    </div>
+                </div>
+            </div>
         </div>
-        <button type="submit" class="btn btn-primary w-100"><i class="bi bi-check-circle me-1"></i> Verify Pick</button>
-    </form>
+    </div>
 </div>
-{% endblock %}
-{% block scripts %}
-<script src="{{ url_for('static', filename='js/verify.js') }}"></script>
+
+<style>
+.camera-feed {
+    min-height: 250px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 5px;
+    border: 2px dashed #ccc;
+}
+
+.result-details {
+    margin-bottom: 10px;
+}
+</style>
+
+<script>
+const STATION_ID = 'STATION-01';
+let currentOrder = null;
+const staffId = 1;
+
+function loadOrder() {
+    const orderId = document.getElementById('order_id').value;
+    if (!orderId) {
+        alert('Please enter Order ID');
+        return;
+    }
+    
+    fetch(`/api/orders/${orderId}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.order) {
+                currentOrder = data.order;
+                displayOrderDetails(data.order);
+            } else {
+                alert('Order not found');
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            alert('Failed to load order');
+        });
+}
+
+function displayOrderDetails(order) {
+    document.getElementById('order-sku').textContent = order.sku;
+    document.getElementById('order-item').textContent = order.item_name;
+    document.getElementById('order-batch').textContent = order.target_batch;
+    document.getElementById('order-expiry').textContent = order.expiry_date;
+    document.getElementById('order-destination').textContent = order.destination;
+    document.getElementById('order-details').style.display = 'block';
+}
+
+function captureImage() {
+    if (!currentOrder) {
+        alert('Please load an order first');
+        return;
+    }
+    
+    fetch('/api/verify', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            order_id: currentOrder.order_id,
+            staff_id: staffId,
+            station_id: STATION_ID,
+            image_source: 0
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        displayVerificationResult(data);
+        loadAlerts();
+    })
+    .catch(err => {
+        console.error(err);
+        alert('Verification failed: ' + err.message);
+    });
+}
+
+function displayVerificationResult(result) {
+    const resultDiv = document.getElementById('verification-result');
+    const resultHeader = document.getElementById('result-header');
+    const resultAlert = document.getElementById('result-alert');
+    
+    document.getElementById('no-result').style.display = 'none';
+    resultDiv.style.display = 'block';
+    
+    document.getElementById('result-status').textContent = result.result;
+    document.getElementById('result-time').textContent = result.verification_time.toFixed(2);
+    
+    if (result.result === 'APPROVED') {
+        resultHeader.style.backgroundColor = '#28a745';
+        resultAlert.className = 'alert alert-success';
+        resultAlert.innerHTML = '<i class="bi bi-check-circle me-2"></i><strong>APPROVED</strong> - Pick verified successfully!';
+        document.getElementById('errors-list').style.display = 'none';
+        playSuccessSound();
+    } else {
+        resultHeader.style.backgroundColor = '#dc3545';
+        resultAlert.className = 'alert alert-danger';
+        resultAlert.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i><strong>REJECTED</strong> - Picking error detected!';
+        
+        const errorsList = document.getElementById('error-items');
+        errorsList.innerHTML = '';
+        if (result.errors && result.errors.length > 0) {
+            result.errors.forEach(error => {
+                const li = document.createElement('li');
+                li.className = 'text-danger mb-1';
+                li.innerHTML = `<strong>${error.code}:</strong> ${error.message}`;
+                errorsList.appendChild(li);
+            });
+            document.getElementById('errors-list').style.display = 'block';
+        }
+        playErrorSound();
+    }
+}
+
+function resetVerification() {
+    document.getElementById('verification-result').style.display = 'none';
+    document.getElementById('no-result').style.display = 'block';
+    currentOrder = null;
+    document.getElementById('order-details').style.display = 'none';
+    document.getElementById('order_id').value = '';
+}
+
+function loadAlerts() {
+    fetch('/api/alerts')
+        .then(r => r.json())
+        .then(data => {
+            const container = document.getElementById('alerts-container');
+            if (!data.alerts || data.alerts.length === 0) {
+                container.innerHTML = '<p class="text-muted">No active alerts</p>';
+            } else {
+                container.innerHTML = data.alerts.map(alert => `
+                    <div class="alert alert-warning alert-dismissible fade show mb-2" role="alert">
+                        <strong>${alert.alert_code}</strong>: ${alert.alert_message}
+                        <small class="d-block">Order #${alert.order_id}</small>
+                    </div>
+                `).join('');
+            }
+        });
+}
+
+function playSuccessSound() {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    osc.frequency.value = 800;
+    osc.type = 'sine';
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+    
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.5);
+}
+
+function playErrorSound() {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    for (let i = 0; i < 3; i++) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        
+        osc.frequency.value = 2000;
+        osc.type = 'sine';
+        gain.gain.setValueAtTime(0.3, ctx.currentTime + i * 0.2);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + i * 0.2 + 0.1);
+        
+        osc.start(ctx.currentTime + i * 0.2);
+        osc.stop(ctx.currentTime + i * 0.2 + 0.1);
+    }
+}
+
+// Refresh alerts periodically
+setInterval(loadAlerts, 5000);
+</script>
 {% endblock %}
