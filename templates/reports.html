@@ -1,7 +1,17 @@
 {% extends 'base.html' %}
 {% block content %}
 <div class="container-fluid">
-    <h2 class="mb-4"><i class="bi bi-file-earmark-text me-2"></i>Reports & Analytics</h2>
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+        <h2 class="mb-0"><i class="bi bi-file-earmark-text me-2"></i>Reports & Analytics</h2>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-primary" type="button" onclick="loadAllReports()">
+                <i class="bi bi-arrow-clockwise me-2"></i>Refresh Report
+            </button>
+            <button class="btn btn-primary" type="button" onclick="printReport()">
+                <i class="bi bi-printer me-2"></i>Print Report
+            </button>
+        </div>
+    </div>
     
     <!-- Date Range Filter -->
     <div class="card shadow-sm mb-4">
@@ -88,16 +98,28 @@
             </div>
         </div>
     </div>
-    
-    <!-- Export Button -->
-    <div class="row mt-4">
-        <div class="col-12">
-            <button class="btn btn-success" onclick="exportReport()">
-                <i class="bi bi-download me-2"></i>Export Report (CSV)
-            </button>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white"><h5 class="mb-0"><i class="bi bi-table me-2"></i>Comprehensive Report Details</h5></div>
+        <div class="table-responsive">
+            <table class="table table-striped table-hover align-middle mb-0">
+                <thead class="table-light"><tr><th>Staff Member</th><th>Total Picks</th><th>Approved</th><th>Errors</th><th>Accuracy</th><th>Performance</th></tr></thead>
+                <tbody id="report-staff-body"><tr><td colspan="6" class="text-center text-muted">No staff performance records yet.</td></tr></tbody>
+            </table>
         </div>
+        <div class="card-body border-top" id="report-order-summary">No order summary available.</div>
     </div>
+    
 </div>
+
+<style>
+@media print {
+    nav, .btn, input, label, .card-header { display: none !important; }
+    body, .container-fluid { background: #fff !important; }
+    .card { border: 1px solid #dee2e6 !important; break-inside: avoid; }
+    .container-fluid { width: 100%; }
+}
+</style>
 
 <script>
 let currentStartDate = null;
@@ -109,7 +131,7 @@ function loadAccuracyReport() {
         url += `?start_date=${currentStartDate}&end_date=${currentEndDate}`;
     }
     
-    fetch(url)
+    fetch(`${url}${url.includes('?') ? '&' : '?'}_=${Date.now()}`, {cache: 'no-store'})
         .then(r => r.json())
         .then(data => {
             const container = document.getElementById('accuracy-report');
@@ -147,7 +169,7 @@ function loadAccuracyReport() {
 }
 
 function loadInventoryReport() {
-    fetch('/api/reports/inventory')
+    fetch(`/api/reports/inventory?_=${Date.now()}`, {cache: 'no-store'})
         .then(r => r.json())
         .then(data => {
             const container = document.getElementById('inventory-report');
@@ -186,7 +208,7 @@ function loadInventoryReport() {
 }
 
 function loadErrorTrends() {
-    fetch('/api/reports/error-trends?days=7')
+    fetch(`/api/reports/error-trends?days=7&_=${Date.now()}`, {cache: 'no-store'})
         .then(r => r.json())
         .then(data => {
             const container = document.getElementById('error-trends');
@@ -241,7 +263,7 @@ function loadErrorTrends() {
 }
 
 function loadComplianceSummary() {
-    fetch('/api/reports/dashboard')
+    fetch(`/api/reports/dashboard?_=${Date.now()}`, {cache: 'no-store'})
         .then(r => r.json())
         .then(data => {
             const container = document.getElementById('compliance-summary');
@@ -283,6 +305,24 @@ function loadComplianceSummary() {
             
             container.innerHTML = html;
         });
+
+    fetch(`/api/reports/staff-performance?_=${Date.now()}`, {cache: 'no-store'})
+        .then(r => r.json())
+        .then(data => {
+            const body = document.getElementById('report-staff-body');
+            body.innerHTML = (data.data || []).map(staff => `
+                <tr><td><strong>${staff.operator_name}</strong><br><small class="text-muted">${staff.employee_id}</small></td>
+                    <td>${staff.total_picks}</td><td>${staff.successful_picks}</td><td>${staff.error_summary}</td>
+                    <td>${Number(staff.accuracy_rate).toFixed(1)}%</td><td>${staff.performance_status}</td></tr>
+            `).join('') || '<tr><td colspan="6" class="text-center text-muted">No staff records available.</td></tr>';
+        });
+
+    fetch(`/api/dashboard?_=${Date.now()}`, {cache: 'no-store'})
+        .then(r => r.json())
+        .then(data => {
+            const counts = data.orders || {};
+            document.getElementById('report-order-summary').innerHTML = `<strong>Order Summary:</strong> ${counts.PENDING || 0} pending, ${counts.READY_FOR_DISPATCH || 0} ready for dispatch, ${data.total_picks || 0} verification attempts recorded.`;
+        });
 }
 
 function applyDateFilter() {
@@ -312,8 +352,9 @@ function loadAllReports() {
     loadComplianceSummary();
 }
 
-function exportReport() {
-    alert('Export functionality coming soon. Reports can be generated via API.');
+function printReport() {
+    loadAllReports();
+    window.setTimeout(() => window.print(), 500);
 }
 
 // Load reports on page load

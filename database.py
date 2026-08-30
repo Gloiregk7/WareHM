@@ -1,5 +1,6 @@
 import sqlite3
 from datetime import datetime
+from werkzeug.security import generate_password_hash
 
 def init_db():
     conn = sqlite3.connect('kemsa_wms.db')
@@ -21,6 +22,16 @@ def init_db():
         INSERT INTO staff (operator_name, employee_id, department, role)
         VALUES (?, ?, ?, ?)
     ''', sample_staff)
+
+    cursor.execute('''
+        INSERT INTO hospitals (hospital_name, hospital_code, password_hash)
+        VALUES (?, ?, ?)
+    ''', ('Kenyatta National Hospital', 'KNH-001', generate_password_hash('hospital123')))
+
+    cursor.execute('''
+        INSERT INTO supervisors (supervisor_name, supervisor_code, password_hash)
+        VALUES (?, ?, ?)
+    ''', ('Warehouse Supervisor', 'SUP-001', generate_password_hash('supervisor123')))
     
     # Insert sample inventory
     sample_inventory = [

@@ -16,9 +16,9 @@ async function loadOrders() {
             <td><span class="badge bg-secondary">${order.target_batch}</span></td>
             <td>${order.expiry_date}</td>
             <td><i class="bi bi-geo-alt me-1"></i>${order.location}</td>
-            <td>${order.destination}</td>
+            <td>${order.hospital_name || order.destination}</td>
             <td><span class="badge ${order.status === 'READY_FOR_DISPATCH' ? 'bg-success' : 'bg-warning text-dark'}">${order.status_label || order.status.replaceAll('_', ' ')}</span></td>
-            <td>${order.status === 'PENDING' ? `<button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteOrder(${order.order_id})"><i class="bi bi-trash me-1"></i>Delete</button>` : '<span class="text-muted small">Verified</span>'}</td>
+            <td>${order.status === 'PENDING' ? `<a class="btn btn-sm btn-primary" href="/verify?order_id=${order.order_id}"><i class="bi bi-qr-code-scan me-1"></i>Verify order</a>` : '<span class="text-success small"><i class="bi bi-check-circle me-1"></i>Verified</span>'}</td>
         </tr>
     `).join('');
 }
@@ -31,26 +31,5 @@ async function deleteOrder(orderId) {
     message.innerHTML = `<div class="alert alert-${response.ok ? 'success' : 'danger'}">${result.message}</div>`;
     if (response.ok) await loadOrders();
 }
-
-document.getElementById('order-form').addEventListener('submit', async event => {
-    event.preventDefault();
-    const payload = Object.fromEntries(new FormData(event.target).entries());
-    payload.required_quantity = Number(payload.required_quantity);
-    const message = document.getElementById('order-message');
-    try {
-        const response = await fetch('/api/orders', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload)
-        });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.message || 'Unable to create order');
-        message.innerHTML = `<div class="alert alert-success"><i class="bi bi-check-circle me-1"></i>Order #${result.order.order_id} created successfully with status ${result.order.status}.</div>`;
-        event.target.reset();
-        await loadOrders();
-    } catch (error) {
-        message.innerHTML = `<div class="alert alert-danger">${error.message}</div>`;
-    }
-});
 
 loadOrders();

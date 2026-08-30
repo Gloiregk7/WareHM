@@ -4,6 +4,8 @@ DROP TABLE IF EXISTS pick_alerts;
 DROP TABLE IF EXISTS staff_performance;
 DROP TABLE IF EXISTS verification_log;
 DROP TABLE IF EXISTS staff;
+DROP TABLE IF EXISTS hospitals;
+DROP TABLE IF EXISTS supervisors;
 DROP TABLE IF EXISTS orders;
 DROP TABLE IF EXISTS inventory;
 
@@ -31,6 +33,26 @@ CREATE TABLE staff (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Hospital Accounts
+CREATE TABLE hospitals (
+    hospital_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hospital_name TEXT NOT NULL,
+    hospital_code TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ACTIVE',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Supervisor Accounts
+CREATE TABLE supervisors (
+    supervisor_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    supervisor_name TEXT NOT NULL,
+    supervisor_code TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ACTIVE',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Orders Table
 CREATE TABLE orders (
     order_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,10 +64,12 @@ CREATE TABLE orders (
     location TEXT NOT NULL,
     destination TEXT NOT NULL,
     dispatcher_name TEXT NOT NULL,
+    hospital_id INTEGER,
     status TEXT NOT NULL DEFAULT 'PENDING',
     assigned_to INTEGER,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (assigned_to) REFERENCES staff(staff_id)
+    FOREIGN KEY (assigned_to) REFERENCES staff(staff_id),
+    FOREIGN KEY (hospital_id) REFERENCES hospitals(hospital_id)
 );
 
 -- Verification Log Table (Audit Trail Core)

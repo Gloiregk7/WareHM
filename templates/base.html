@@ -17,12 +17,21 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto">
+                    {% if session.get('hospital_id') %}
+                    <li class="nav-item"><a class="nav-link" href="/hospital/orders">Place Order</a></li>
+                    {% elif session.get('supervisor_id') %}
+                    <li class="nav-item"><a class="nav-link" href="/orders">Order Feed</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/dashboard">Supervisor Dashboard</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/staff">Staff Management</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/reports">Reports</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/inventory">Inventory</a></li>
+                    {% else %}
                     <li class="nav-item"><a class="nav-link" href="/orders">Order Feed</a></li>
                     <li class="nav-item"><a class="nav-link" href="/verify">Verification Station</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/dashboard">Supervisor Dashboard</a></li>
                     <li class="nav-item"><a class="nav-link" href="/inventory">Inventory</a></li>
+                    {% endif %}
                     <li class="nav-item d-flex align-items-center ms-lg-3">
-                        <span class="navbar-text me-2">{{ session.get('operator_name') }} ({{ session.get('employee_id') }})</span>
+                        <span class="navbar-text me-2">{{ session.get('operator_name') or session.get('hospital_name') or session.get('supervisor_name') }}</span>
                         <form method="post" action="{{ url_for('logout') }}">
                             <button class="btn btn-outline-light btn-sm" type="submit"><i class="bi bi-box-arrow-right me-1"></i>Sign Out</button>
                         </form>

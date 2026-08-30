@@ -7,11 +7,28 @@
             <button type="button" class="btn btn-outline-secondary" onclick="refreshDashboard()">
                 <i class="bi bi-arrow-clockwise me-1"></i>Refresh Dashboard
             </button>
+            <a class="btn btn-outline-primary" href="/reports">
+                <i class="bi bi-file-earmark-text me-1"></i>Print Reports
+            </a>
             <a class="btn btn-primary" href="/verify">
                 <i class="bi bi-qr-code-scan me-1"></i>Verify Pick
             </a>
         </div>
     </div>
+
+    {% if session.get('supervisor_id') %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white"><h5 class="mb-0"><i class="bi bi-person-gear me-2"></i>Supervisor Actions</h5></div>
+        <div class="card-body">
+            <div class="d-flex flex-wrap gap-2">
+                <a class="btn btn-outline-primary" href="/orders"><i class="bi bi-inbox me-1"></i>Review Hospital Orders</a>
+                <a class="btn btn-outline-primary" href="/staff"><i class="bi bi-people me-1"></i>Review Staff Performance</a>
+                <a class="btn btn-outline-primary" href="/inventory"><i class="bi bi-box-seam me-1"></i>Manage Inventory</a>
+                <a class="btn btn-outline-primary" href="/reports"><i class="bi bi-printer me-1"></i>Generate Printable Report</a>
+            </div>
+        </div>
+    </div>
+    {% endif %}
     
     <!-- KPI Cards -->
     <div class="row mb-4">
@@ -166,7 +183,7 @@
 
 <script>
 function refreshDashboard() {
-    fetch('/api/dashboard')
+    fetch(`/api/dashboard?_=${Date.now()}`, {cache: 'no-store'})
         .then(r => r.json())
         .then(data => {
             document.getElementById('total-picks').textContent = data.total_picks;

@@ -4,15 +4,25 @@
     <div class="col-md-6 col-lg-5">
         <div class="card shadow-sm mt-5">
             <div class="card-header bg-dark text-white text-center py-3">
-                <h3 class="mb-1"><i class="bi bi-shield-lock me-2"></i>Staff Sign In</h3>
-                <p class="mb-0 small">Identify yourself before accessing KEMSA WMS</p>
+                <h3 class="mb-1"><i class="bi bi-shield-lock me-2"></i>KEMSA WMS Sign In</h3>
+                <p class="mb-0 small">Choose your account type to continue</p>
             </div>
             <div class="card-body p-4">
                 {% if error %}
                 <div class="alert alert-danger" role="alert">{{ error }}</div>
                 {% endif %}
+                <div class="btn-group w-100 mb-4" role="group" aria-label="Account type">
+                    <input type="radio" class="btn-check" name="account-toggle" id="hospital-toggle" autocomplete="off" {% if account_type == 'hospital' %}checked{% endif %}>
+                    <label class="btn btn-outline-primary" for="hospital-toggle"><i class="bi bi-hospital me-1"></i>Hospital</label>
+                    <input type="radio" class="btn-check" name="account-toggle" id="staff-toggle" autocomplete="off" {% if account_type == 'staff' %}checked{% endif %}>
+                    <label class="btn btn-outline-primary" for="staff-toggle"><i class="bi bi-person-badge me-1"></i>Warehouse Staff</label>
+                    <input type="radio" class="btn-check" name="account-toggle" id="supervisor-toggle" autocomplete="off" {% if account_type == 'supervisor' %}checked{% endif %}>
+                    <label class="btn btn-outline-primary" for="supervisor-toggle"><i class="bi bi-person-gear me-1"></i>Supervisor</label>
+                </div>
                 <form method="post" action="{{ url_for('login') }}">
                     <input type="hidden" name="next" value="{{ next or '' }}">
+                    <input type="hidden" name="account_type" id="account_type" value="{{ account_type or 'hospital' }}">
+                    <div id="staff-fields">
                     <div class="mb-3">
                         <label for="operator_name" class="form-label">Staff Name</label>
                         <input id="operator_name" name="operator_name" class="form-control" required autocomplete="name">
@@ -20,6 +30,27 @@
                     <div class="mb-4">
                         <label for="staff_id" class="form-label">Staff ID</label>
                         <input id="staff_id" name="staff_id" type="text" class="form-control" required>
+                    </div>
+                    </div>
+                    <div id="hospital-fields" {% if account_type != 'hospital' %}style="display: none;"{% endif %}>
+                        <div class="mb-3">
+                            <label for="hospital_code" class="form-label">Hospital Code</label>
+                            <input id="hospital_code" name="hospital_code" class="form-control" autocomplete="username">
+                        </div>
+                        <div class="mb-4">
+                            <label for="password" class="form-label">Password</label>
+                            <input id="password" name="password" type="password" class="form-control" autocomplete="current-password">
+                        </div>
+                    </div>
+                    <div id="supervisor-fields" {% if account_type != 'supervisor' %}style="display: none;"{% endif %}>
+                        <div class="mb-3">
+                            <label for="supervisor_code" class="form-label">Supervisor Code</label>
+                            <input id="supervisor_code" name="supervisor_code" class="form-control" autocomplete="username">
+                        </div>
+                        <div class="mb-4">
+                            <label for="supervisor-password" class="form-label">Password</label>
+                            <input id="supervisor-password" name="password" type="password" class="form-control" autocomplete="current-password">
+                        </div>
                     </div>
                     <button type="submit" class="btn btn-primary w-100">
                         <i class="bi bi-box-arrow-in-right me-1"></i>Sign In
@@ -29,4 +60,37 @@
         </div>
     </div>
 </div>
+<script>
+const staffToggle = document.getElementById('staff-toggle');
+const hospitalToggle = document.getElementById('hospital-toggle');
+const supervisorToggle = document.getElementById('supervisor-toggle');
+const accountType = document.getElementById('account_type');
+const staffFields = document.getElementById('staff-fields');
+const hospitalFields = document.getElementById('hospital-fields');
+const supervisorFields = document.getElementById('supervisor-fields');
+function updateAccountFields(type) {
+    const hospital = type === 'hospital';
+    const supervisor = type === 'supervisor';
+    accountType.value = type;
+    staffFields.style.display = hospital || supervisor ? 'none' : 'block';
+    hospitalFields.style.display = hospital ? 'block' : 'none';
+    supervisorFields.style.display = supervisor ? 'block' : 'none';
+    document.querySelectorAll('#staff-fields input').forEach(input => {
+        input.required = !hospital && !supervisor;
+        input.disabled = hospital || supervisor;
+    });
+    document.querySelectorAll('#hospital-fields input').forEach(input => {
+        input.required = hospital;
+        input.disabled = !hospital;
+    });
+    document.querySelectorAll('#supervisor-fields input').forEach(input => {
+        input.required = supervisor;
+        input.disabled = !supervisor;
+    });
+}
+staffToggle.addEventListener('change', () => updateAccountFields('staff'));
+hospitalToggle.addEventListener('change', () => updateAccountFields('hospital'));
+supervisorToggle.addEventListener('change', () => updateAccountFields('supervisor'));
+updateAccountFields(accountType.value);
+</script>
 {% endblock %}

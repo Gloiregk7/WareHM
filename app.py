@@ -3,6 +3,9 @@ import os
 import sqlite3
 from datetime import datetime
 import time
+from werkzeug.security import check_password_hash, generate_password_hash
+from reports import ReportingSystem
+from audit_system import AuditSystem
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('KEMSA_SECRET_KEY', 'development-only-change-me')
@@ -11,10 +14,42 @@ DB_NAME = os.path.join(BASE_DIR, 'kemsa_wms.db')
 
 def ensure_order_columns():
     conn = sqlite3.connect(DB_NAME)
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS hospitals (
+            hospital_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            hospital_name TEXT NOT NULL,
+            hospital_code TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'ACTIVE',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    ''')
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS supervisors (
+            supervisor_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            supervisor_name TEXT NOT NULL,
+            supervisor_code TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'ACTIVE',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    ''')
     columns = {row[1] for row in conn.execute("PRAGMA table_info(orders)")}
     if 'dispatcher_name' not in columns:
         conn.execute("ALTER TABLE orders ADD COLUMN dispatcher_name TEXT NOT NULL DEFAULT ''")
-        conn.commit()
+    if 'hospital_id' not in columns:
+        conn.execute("ALTER TABLE orders ADD COLUMN hospital_id INTEGER")
+    if not conn.execute("SELECT 1 FROM hospitals LIMIT 1").fetchone():
+        conn.execute(
+            "INSERT INTO hospitals (hospital_name, hospital_code, password_hash) VALUES (?, ?, ?)",
+            ('Kenyatta National Hospital', 'KNH-001', generate_password_hash('hospital123'))
+        )
+    if not conn.execute("SELECT 1 FROM supervisors LIMIT 1").fetchone():
+        conn.execute(
+            "INSERT INTO supervisors (supervisor_name, supervisor_code, password_hash) VALUES (?, ?, ?)",
+            ('Warehouse Supervisor', 'SUP-001', generate_password_hash('supervisor123'))
+        )
+    conn.commit()
     conn.close()
 
 ensure_order_columns()
@@ -25,7 +60,19 @@ PUBLIC_ENDPOINTS = {'login', 'static'}
 def require_staff_login():
     if request.endpoint in PUBLIC_ENDPOINTS or request.endpoint is None:
         return None
-    if session.get('staff_id'):
+    if session.get('staff_id') or session.get('hospital_id') or session.get('supervisor_id'):
+        if session.get('hospital_id') and request.endpoint not in {'hospital_orders_page', 'get_orders', 'create_order', 'delete_order', 'logout'}:
+            if request.path.startswith('/api/'):
+                return jsonify({"status": "FORBIDDEN", "message": "This area is for warehouse staff only"}), 403
+            return redirect(url_for('hospital_orders_page'))
+        if session.get('staff_id') and request.endpoint in {'dashboard_page', 'dashboard_data'}:
+            if request.path.startswith('/api/'):
+                return jsonify({"status": "FORBIDDEN", "message": "The supervisor dashboard is restricted to supervisors"}), 403
+            return redirect(url_for('orders_page'))
+        if session.get('staff_id') and request.endpoint in {'reports_page', 'accuracy_report'}:
+            if request.path.startswith('/api/'):
+                return jsonify({"status": "FORBIDDEN", "message": "Reports are restricted to supervisors"}), 403
+            return redirect(url_for('orders_page'))
         return None
     if request.path.startswith('/api/'):
         return jsonify({
@@ -34,20 +81,78 @@ def require_staff_login():
         }), 401
     return redirect(url_for('login', next=request.full_path))
 
+@app.after_request
+def prevent_stale_data(response):
+    if request.path.startswith('/api/'):
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+    return response
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
         data = request.get_json(silent=True) if request.is_json else request.form
+        account_type = str(data.get('account_type', 'hospital')).strip().lower()
+        next_url = data.get('next') or request.args.get('next')
+
+        if account_type == 'hospital':
+            hospital_code = str(data.get('hospital_code', '')).strip()
+            password = str(data.get('password', ''))
+            conn = get_db_connection()
+            hospital = conn.execute('''
+                SELECT hospital_id, hospital_name, hospital_code, password_hash
+                FROM hospitals WHERE hospital_code = ? AND status = 'ACTIVE'
+            ''', (hospital_code,)).fetchone()
+            conn.close()
+            if not hospital or not check_password_hash(hospital['password_hash'], password):
+                message = 'Hospital code or password is incorrect.'
+                if request.is_json:
+                    return jsonify({"status": "ERROR", "message": message}), 401
+                return render_template('login.html', error=message, next=next_url or '', account_type='hospital'), 401
+
+            session.clear()
+            session['hospital_id'] = hospital['hospital_id']
+            session['hospital_name'] = hospital['hospital_name']
+            session['hospital_code'] = hospital['hospital_code']
+            destination = next_url if next_url and next_url.startswith('/') else url_for('hospital_orders_page')
+            if request.is_json:
+                return jsonify({"status": "SUCCESS", "hospital": dict(hospital)})
+            return redirect(destination)
+
+        if account_type == 'supervisor':
+            supervisor_code = str(data.get('supervisor_code', '')).strip()
+            password = str(data.get('password', ''))
+            conn = get_db_connection()
+            supervisor = conn.execute('''
+                SELECT supervisor_id, supervisor_name, supervisor_code, password_hash
+                FROM supervisors WHERE supervisor_code = ? AND status = 'ACTIVE'
+            ''', (supervisor_code,)).fetchone()
+            conn.close()
+            if not supervisor or not check_password_hash(supervisor['password_hash'], password):
+                message = 'Supervisor code or password is incorrect.'
+                if request.is_json:
+                    return jsonify({"status": "ERROR", "message": message}), 401
+                return render_template('login.html', error=message, next=next_url or '', account_type='supervisor'), 401
+
+            session.clear()
+            session['supervisor_id'] = supervisor['supervisor_id']
+            session['supervisor_name'] = supervisor['supervisor_name']
+            session['supervisor_code'] = supervisor['supervisor_code']
+            destination = next_url if next_url and next_url.startswith('/') else url_for('dashboard_page')
+            if request.is_json:
+                return jsonify({"status": "SUCCESS", "supervisor": dict(supervisor)})
+            return redirect(destination)
+
         operator_name = str(data.get('operator_name', '')).strip()
         staff_id = str(data.get('staff_id', '')).strip()
-        next_url = data.get('next') or request.args.get('next') or url_for('orders_page')
+        next_url = next_url or url_for('orders_page')
 
         try:
             conn = get_db_connection()
             staff = conn.execute('''
                 SELECT staff_id, operator_name, employee_id, department, role
                 FROM staff
-                                WHERE employee_id = ? AND status = 'ACTIVE'
+                                WHERE employee_id = ? AND status = 'ACTIVE' AND role != 'supervisor'
                   AND lower(trim(operator_name)) = lower(trim(?))
                         ''', (staff_id, operator_name)).fetchone()
             conn.close()
@@ -72,7 +177,11 @@ def login():
 
     if session.get('staff_id'):
         return redirect(url_for('orders_page'))
-    return render_template('login.html', next=request.args.get('next', ''))
+    if session.get('supervisor_id'):
+        return redirect(url_for('dashboard_page'))
+    if session.get('hospital_id'):
+        return redirect(url_for('hospital_orders_page'))
+    return render_template('login.html', next=request.args.get('next', ''), account_type='hospital')
 
 @app.post('/logout')
 def logout():
@@ -90,6 +199,10 @@ def get_db_connection():
 @app.route('/orders')
 def orders_page():
     return render_template('orders.html')
+
+@app.route('/hospital/orders')
+def hospital_orders_page():
+    return render_template('hospital_orders.html')
 
 @app.route('/verify')
 def verify_page():
@@ -231,13 +344,19 @@ def get_orders():
     try:
         status = request.args.get('status', 'ALL')
         conn = get_db_connection()
-        order_columns = '''order_id, sku, item_name, target_batch, required_quantity,
-                           expiry_date, location, destination, status, assigned_to, created_at'''
+        order_columns = '''o.order_id, o.sku, o.item_name, o.target_batch, o.required_quantity,
+                           o.expiry_date, o.location, o.destination, o.status, o.assigned_to,
+                           o.hospital_id, h.hospital_name, o.created_at'''
+        order_filter = ''
+        parameters = ()
+        if session.get('hospital_id'):
+            order_filter = ' AND o.hospital_id = ?'
+            parameters = (session['hospital_id'],)
         if status == 'ALL':
-            orders = conn.execute(f"SELECT {order_columns} FROM orders ORDER BY order_id ASC").fetchall()
+            orders = conn.execute(f"SELECT {order_columns} FROM orders o LEFT JOIN hospitals h ON h.hospital_id = o.hospital_id WHERE 1=1 {order_filter} ORDER BY o.order_id ASC", parameters).fetchall()
         else:
             orders = conn.execute(
-                f"SELECT {order_columns} FROM orders WHERE status = ? ORDER BY order_id ASC", (status,)
+                f"SELECT {order_columns} FROM orders o LEFT JOIN hospitals h ON h.hospital_id = o.hospital_id WHERE o.status = ? {order_filter} ORDER BY o.order_id ASC", (status,) + parameters
             ).fetchall()
         conn.close()
         return jsonify([
@@ -250,7 +369,8 @@ def get_orders():
 @app.route('/api/orders', methods=['POST'])
 def create_order():
     data = request.get_json(silent=True) or {}
-    required_fields = ('sku', 'item_name', 'target_batch', 'required_quantity', 'expiry_date', 'location', 'destination', 'dispatcher_name')
+    is_hospital_order = bool(session.get('hospital_id'))
+    required_fields = ('sku', 'item_name', 'required_quantity') if is_hospital_order else ('sku', 'item_name', 'target_batch', 'required_quantity', 'expiry_date', 'location', 'destination', 'dispatcher_name')
     missing_fields = [field for field in required_fields if data.get(field) in (None, '')]
     if missing_fields:
         return jsonify({
@@ -262,7 +382,8 @@ def create_order():
         quantity = int(data['required_quantity'])
         if quantity <= 0:
             raise ValueError
-        datetime.strptime(data['expiry_date'], '%Y-%m-%d')
+        if not is_hospital_order:
+            datetime.strptime(data['expiry_date'], '%Y-%m-%d')
     except (TypeError, ValueError):
         return jsonify({
             "status": "ERROR",
@@ -271,10 +392,16 @@ def create_order():
 
     try:
         conn = get_db_connection()
-        inventory = conn.execute(
-            "SELECT item_name, quantity FROM inventory WHERE sku = ? AND batch_code = ? AND expiry_date = ?",
-            (data['sku'].strip(), data['target_batch'].strip(), data['expiry_date'])
-        ).fetchone()
+        if is_hospital_order:
+            inventory = conn.execute(
+                "SELECT item_name, batch_code, quantity, location, expiry_date FROM inventory WHERE sku = ?",
+                (data['sku'].strip(),)
+            ).fetchone()
+        else:
+            inventory = conn.execute(
+                "SELECT item_name, quantity FROM inventory WHERE sku = ? AND batch_code = ? AND expiry_date = ?",
+                (data['sku'].strip(), data['target_batch'].strip(), data['expiry_date'])
+            ).fetchone()
         if not inventory:
             possible_sku = conn.execute(
                 "SELECT sku FROM inventory WHERE lower(sku) = lower(?) LIMIT 1",
@@ -301,12 +428,14 @@ def create_order():
             return jsonify({"status": "ERROR", "message": "Insufficient inventory quantity"}), 409
 
         cursor = conn.execute('''
-            INSERT INTO orders (sku, item_name, target_batch, required_quantity, expiry_date, location, destination, dispatcher_name, assigned_to)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO orders (sku, item_name, target_batch, required_quantity, expiry_date, location, destination, dispatcher_name, assigned_to, hospital_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
-            data['sku'].strip(), inventory['item_name'], data['target_batch'].strip(), quantity,
-            data['expiry_date'], data['location'].strip(), data['destination'].strip(),
-            data['dispatcher_name'].strip(), session['staff_id']
+            data['sku'].strip(), inventory['item_name'], inventory['batch_code'] if is_hospital_order else data['target_batch'].strip(), quantity,
+            inventory['expiry_date'] if is_hospital_order else data['expiry_date'], inventory['location'] if is_hospital_order else data['location'].strip(),
+            session.get('hospital_name') if is_hospital_order else data['destination'].strip(),
+            'Hospital Request' if is_hospital_order else data['dispatcher_name'].strip(),
+            session.get('staff_id'), session.get('hospital_id')
         ))
         conn.commit()
         order = conn.execute("SELECT * FROM orders WHERE order_id = ?", (cursor.lastrowid,)).fetchone()
@@ -322,11 +451,17 @@ def delete_order(order_id):
     try:
         conn = get_db_connection()
         order = conn.execute(
-            "SELECT status FROM orders WHERE order_id = ?", (order_id,)
+            "SELECT status, hospital_id FROM orders WHERE order_id = ?", (order_id,)
         ).fetchone()
         if not order:
             conn.close()
             return jsonify({"status": "ERROR", "message": "Order record was not found"}), 404
+        if session.get('hospital_id') and order['hospital_id'] != session['hospital_id']:
+            conn.close()
+            return jsonify({
+                "status": "ERROR",
+                "message": "You can only manage orders submitted by your hospital"
+            }), 403
         if order['status'] != 'PENDING':
             conn.close()
             return jsonify({
@@ -549,17 +684,69 @@ def dashboard_data():
 @app.route('/api/reports/accuracy')
 def accuracy_report():
     try:
-        conn = get_db_connection()
-        report = conn.execute('''
-            SELECT 
-                COUNT(*) as total_picks,
-                SUM(CASE WHEN result = 'APPROVED' THEN 1 ELSE 0 END) as approved,
-                SUM(CASE WHEN result = 'REJECTED' THEN 1 ELSE 0 END) as rejected,
-                ROUND(100.0 * SUM(CASE WHEN result = 'APPROVED' THEN 1 ELSE 0 END) / COUNT(*), 2) as accuracy_percentage
-            FROM verification_log
-        ''').fetchone()
-        conn.close()
-        return jsonify(dict(report) if report else {})
+        report = ReportingSystem(DB_NAME).get_picking_accuracy_report(
+            request.args.get('start_date'), request.args.get('end_date')
+        )
+        return jsonify(report)
+    except Exception as e:
+        return jsonify({"status": "ERROR", "message": str(e)}), 500
+
+@app.route('/api/reports/staff-performance')
+def staff_performance_report():
+    try:
+        report = ReportingSystem(DB_NAME).get_staff_performance_report()
+        for staff in report.get('data', []):
+            staff['total_picks'] = staff.get('total_picks') or 0
+            staff['successful_picks'] = staff.get('successful_picks') or 0
+            staff['failed_picks'] = staff.get('failed_picks') or 0
+            staff['accuracy_rate'] = staff.get('accuracy_rate') or 0
+            staff['avg_verification_time'] = staff.get('avg_verification_time') or 0
+            staff['performance_status'] = (
+                'Accurate' if staff['total_picks'] and staff['accuracy_rate'] >= 95
+                else 'Needs improvement' if staff['failed_picks'] else 'No verifications yet'
+            )
+            staff['error_summary'] = (
+                f"{staff['failed_picks']} verification error(s)"
+                if staff['failed_picks'] else 'No verification errors'
+            )
+        return jsonify(report)
+    except Exception as e:
+        return jsonify({"status": "ERROR", "message": str(e)}), 500
+
+@app.route('/api/reports/inventory')
+def inventory_report():
+    try:
+        return jsonify(ReportingSystem(DB_NAME).get_inventory_verification_report())
+    except Exception as e:
+        return jsonify({"status": "ERROR", "message": str(e)}), 500
+
+@app.route('/api/reports/error-trends')
+def error_trends_report():
+    try:
+        days = max(1, min(int(request.args.get('days', 7)), 365))
+        return jsonify(ReportingSystem(DB_NAME).get_error_trend_report(days))
+    except (TypeError, ValueError):
+        return jsonify({"status": "ERROR", "message": "days must be a positive number"}), 400
+    except Exception as e:
+        return jsonify({"status": "ERROR", "message": str(e)}), 500
+
+@app.route('/api/reports/dashboard')
+def reports_dashboard():
+    try:
+        return jsonify(ReportingSystem(DB_NAME).get_compliance_dashboard_data())
+    except Exception as e:
+        return jsonify({"status": "ERROR", "message": str(e)}), 500
+
+@app.route('/api/audit/staff/<int:staff_id>')
+def staff_audit_history(staff_id):
+    try:
+        days = max(1, min(int(request.args.get('days', 30)), 365))
+        report = AuditSystem(DB_NAME).get_staff_audit_history(staff_id, days)
+        if report.get('status') == 'ERROR':
+            return jsonify(report), 404
+        return jsonify(report)
+    except (TypeError, ValueError):
+        return jsonify({"status": "ERROR", "message": "days must be a positive number"}), 400
     except Exception as e:
         return jsonify({"status": "ERROR", "message": str(e)}), 500
 
